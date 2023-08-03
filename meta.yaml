@@ -6,7 +6,7 @@ package:
   version: "{{ version }}"
 
 source:
-  path: src
+  path: .
 #  git_rev:
 #  git_url: https://gitlab.estig.ipb.pt/greenhealth/poselib
 
