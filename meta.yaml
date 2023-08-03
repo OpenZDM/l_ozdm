@@ -1,0 +1,29 @@
+{% set name = "ozdm" %}
+{% set version = "0.0.3" %}
+
+package:
+  name: "{{ name|lower }}"
+  version: "{{ version }}"
+
+source:
+  path: src
+#  git_rev:
+#  git_url: https://gitlab.estig.ipb.pt/greenhealth/poselib
+
+build:
+  number: 1
+  script: "{{ PYTHON }} -m pip install . --no-deps --ignore-installed -vv "
+  noarch: python
+
+requirements:
+  host:
+    - python
+  run:
+    - avro >=1.11.2
+    - stomp.py >=8.1.0
+
+about:
+  home: http://openzdm.eu
+  license: PROPRIETARY
+  license_family: PROPRIETARY
+  summary: Composable command line interface toolkit
