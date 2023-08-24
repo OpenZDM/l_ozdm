@@ -1,6 +1,6 @@
 from setuptools import find_packages, setup
 setup(
-    name='ozdm',
+    name='l_ozdm',
     packages=find_packages(),
     version='0.0.3',
     description='OpenZDM Library Functions and Classes',
