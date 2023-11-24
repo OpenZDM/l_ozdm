@@ -1,3 +1,4 @@
+import base64
 import io
 import json
 
@@ -112,20 +113,21 @@ class AvroSerializer:
     def __init__(self, schema: avro.schema.Schema):
         self.avro_schema = schema
 
-    def __call__(self, content: dict) -> bytes:
+    def __call__(self, content: dict) -> str:
         buf = io.BytesIO()
         writer = avro.datafile.DataFileWriter(buf, avro.io.DatumWriter(), self.avro_schema)
         writer.append(content)
         writer.flush()
         buf.seek(0)
         data = buf.read()
-        return data
+        return base64.b64encode(data).decode()
 
 
 class AvroDeserializer:
 
     def __call__(self, payload: bytes) -> (avro.schema.Schema, list):
-        message_buf = io.BytesIO(payload)
+        base64_str = base64.b64decode(payload)
+        message_buf = io.BytesIO(base64_str)
         reader = avro.datafile.DataFileReader(message_buf, avro.io.DatumReader())
         schema = reader.schema
         content = []
@@ -154,9 +156,7 @@ class SchemaManager:
 
     def put_schema(self, group_id: str, schema_id: str, schema: avro.schema.Schema):
         x = requests.post(url=f"{self.registry.rstrip('/')}/{group_id}/artifacts", json=schema.to_json(), headers={
-            "Content-Type": "application/avro",
+            "Content-Type": "application/json",
             "X-Registry-ArtifactId": schema_id,
             "X-Registry-ArtifactType": "AVRO"
         })
-
-
