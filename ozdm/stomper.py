@@ -42,7 +42,8 @@ class ReconnectListener(MessagingHandler):
 
     def on_start(self, event):
         if self.user is not None and self.password is not None:
-            event.container.sasl().plain(self.user, self.password)
+            sasl = event.container.sasl()
+            sasl.plain(self.user, self.password)
         event.container.connect()
         self.connection = event.container
 
