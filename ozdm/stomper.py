@@ -32,6 +32,12 @@ class ReconnectListener(MessagingHandler):
     def on_message(self, event):
         self.logger.debug('received a message "%s"' % event.message.body)
 
+    def connect(self):  # Keep the 'connect' method here as requested.
+        conn_url = f"amqp://{self.user}:{self.password}@{self.host}:{self.port}"
+        self.container.create_connection(conn_url)
+        self.container.run()
+        self.connection = self.container
+
     def on_disconnected(self, event):
         self.logger.info('Reconnecting...')
         self.connect()
@@ -46,7 +52,6 @@ class ReconnectListener(MessagingHandler):
             event.container.allowed_mechs = "PLAIN"
         event.container.connect(self.user, self.password)
         self.connection = event.container
-
 
     def on_subscribe(self, event):
         i = 1
@@ -116,7 +121,6 @@ class TopicListener(MessagingHandler):
             for observer in observers:
                 observer.on_message(avro_object)
                 print(f"Received message: {avro_object}")
-
 
     def subscribe(self, observer: MessageListener, topic: str, schema: avro.schema.Schema,
                   listen_schema_name: str = None) -> None:
