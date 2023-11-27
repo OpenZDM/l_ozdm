@@ -6,5 +6,5 @@ setup(
     description='OpenZDM Library Functions and Classes',
     author='OpenZDM',
     license='OpenZDM',
-    install_requires=['avro','stomp.py']
+    install_requires=['avro','python-qpid-proton']
 )

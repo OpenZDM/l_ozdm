@@ -140,7 +140,7 @@ class AvroStomper:
         self.connection = None
 
     def connect(self):
-        conn_url = f"amqp://{self.host}:{self.port}"
+        conn_url = f"amqp://{self.user}:{self.password}@{self.host}:{self.port}"
         self.container.create_sender(conn_url)
         self.container.create_receiver(conn_url)
         self.container.run()
