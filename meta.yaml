@@ -20,7 +20,7 @@ requirements:
     - python
   run:
     - avro >=1.11.2
-    - proton >=0.9.1
+    - python-qpid-proton >=0.39.0
 
 about:
   home: http://openzdm.eu
