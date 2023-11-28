@@ -5,7 +5,6 @@ import time
 
 import avro.schema
 from proton._message import Message
-#change here
 from proton.handlers import MessagingHandler
 from proton.reactor import Container
 
@@ -36,6 +35,7 @@ class ReconnectListener(MessagingHandler):
 
     def connect(self):
         conn_url = f"amqp://{self.user}:{self.password}@{self.host}:{self.port}"
+        self.container = Container(self)
         self.container.create_connection(conn_url)
         self.container.run()
         self.connection = self.container
@@ -141,12 +141,13 @@ class AvroStomper:
         self.user = user
         self.password = password
         self.logger = logger or logging.root
-        self.container = Container(ReconnectListener(user=user, password=password, logger=logger))
+        self.container = None  # Remove container initialization here
         self.topic_listener = TopicListener(logger=logger)
         self.connection = None
 
     def connect(self):
         conn_url = f"amqp://{self.user}:{self.password}@{self.host}:{self.port}"
+        self.container = Container(ReconnectListener(user=self.user, password=self.password, logger=self.logger))
         self.container.create_sender(conn_url)
         self.container.create_receiver(conn_url)
         self.container.run()
@@ -175,6 +176,7 @@ class AvroStomper:
             sender.send(message)
         else:
             self.logger.error("Connection not established.")
+
 
 
 # class SimpleQueueProducer(MessagingHandler):
