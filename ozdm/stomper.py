@@ -59,7 +59,6 @@ class ReconnectListener(MessagingHandler):
             event.container.sasl_enabled = True
             event.container.allowed_mechs = "PLAIN"
         event.container.connect(self.user, self.password)
-        self.connection = event.container
 
     def on_subscribe(self, event):
         i = 1
@@ -178,11 +177,11 @@ class AvroStomper:
         message.body = content
         message.properties = {"schema": avro_object.schema.get_prop("name")}
 
-        if self.connection:
-            sender = self.connection.create_sender(topic)
+        try:
+            sender = self.container.create_sender(topic)
             sender.send(message)
-        else:
-            self.logger.error("Connection not established.")
+        except Exception as e:
+            self.logger.error(f"Error sending message: {e}")
 
 
 
