@@ -18,16 +18,14 @@ class MessageListener(abc.ABC):
         pass
 
 class ReconnectListener(MessagingHandler):
-    _topics: set[str] = set()
-
     def __init__(self, container, host, port, user=None, password=None, logger=None):
         super().__init__()
         self.container = container
         self.host = host
         self.port = port
-        self.logger = logger or logging.root
         self.user = user
         self.password = password
+        self.logger = logger or logging.root
         self.connection = None
 
     def on_error(self, event):
@@ -45,23 +43,18 @@ class ReconnectListener(MessagingHandler):
         except Exception as e:
             print(f"Error in connection: {e}")
 
+    def on_start(self, event):
+        self.connection = event.container.connect(
+            self.host, self.port, self.user, self.password,
+            reconnect=True)  # Enable automatic reconnection
+
     def on_connection_opened(self, event):
-        print("Connection opened with Artemis server")
+        self.logger.debug("Connection opened")
         self.connection = event.connection
 
     def on_disconnected(self, event):
-        print("Disconnected from Artemis server")
-        self.connection = None
-        self.connect()
-        for topic in self._topics:
-            self.container.create_receiver(topic)
-
-    def on_start(self, event):
-        print("ReconnectListener on_start called")
-        if self.user is not None and self.password is not None:
-            event.container.sasl_enabled = True
-            event.container.allowed_mechs = "PLAIN"
-        event.container.connect(self.host, self.port, self.user, self.password)
+        self.logger.debug("Disconnected")
+        self.connection = None  # Clear the connection object
 
     def on_subscribe(self, event):
         i = 1
@@ -150,9 +143,7 @@ class AvroStomper:
         self.user = user
         self.password = password
         self.logger = logger or logging.root
-
         self.container = Container()
-
         self.reconnect_listener = ReconnectListener(
             container=self.container,
             host=self.host,
@@ -163,41 +154,39 @@ class AvroStomper:
         )
         self.container.selectable(self.reconnect_listener)
 
-        self.topic_listener = TopicListener(logger=self.logger)
-
-        self.connection = None
-
     def connect(self):
-        print("Initializing AvroStomper connection...")
-        try:
-            self.container.run()
-            print("AvroStomper connected successfully.")
-        except Exception as e:
-            print(f"Error in AvroStomper connect: {e}")
-
+        if not self.reconnect_listener.connection:
+            print("Initializing AvroStomper connection...")
+            try:
+                self.container.run()
+                print("AvroStomper connected successfully.")
+            except Exception as e:
+                print(f"Error in AvroStomper connect: {e}")
 
     def disconnect(self):
         self.container.stop()
+
+    def send(self, topic: str, avro_object: avroer.AvroObject) -> None:
+        if not self.reconnect_listener.connection:
+            self.logger.error("Connection not established.")
+            return
+
+        try:
+            serialize = avroer.AvroSerializer(schema=avro_object.schema)
+            content = serialize(content=avro_object.data)
+            message = Message()
+            message.subject = topic
+            message.body = content
+            sender = self.container.create_sender(topic)
+            sender.send(message)
+        except Exception as e:
+            self.logger.error(f"Error sending message: {e}")
 
     def subscribe(self, observer: MessageListener, topic: str, schema: avro.schema.Schema = None,
                   listen_schema_name: str = None) -> None:
         self.topic_listener.subscribe(observer=observer, topic=topic, schema=schema,
                                       listen_schema_name=listen_schema_name)
         ReconnectListener.subscribed(self, topic)
-
-    def send(self, topic: str, avro_object: avroer.AvroObject) -> None:
-        serialize = avroer.AvroSerializer(schema=avro_object.schema)
-        content = serialize(content=avro_object.data)
-        message = Message()
-        message.subject = topic
-        message.body = content
-        message.properties = {"schema": avro_object.schema.get_prop("name")}
-
-        try:
-            sender = self.container.create_sender(topic)
-            sender.send(message)
-        except Exception as e:
-            self.logger.error(f"Error sending message: {e}")
 
 
 
