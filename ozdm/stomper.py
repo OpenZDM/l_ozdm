@@ -36,20 +36,21 @@ class ReconnectListener(MessagingHandler):
         self.logger.info('Received a message: %s' % event.message.body)
 
     def connect(self):
-        self.logger.info("Attempting to connect...")
-        try:
-            conn_url = f"amqp://{self.user}:{self.password}@{self.host}:{self.port}"
-            self.connection = self.container.connect(conn_url, reconnect=True)
-            self.logger.info(f"Connecting to {conn_url}")
-        except Exception as e:
-            self.logger.error(f"Error in connection: {e}")
-            self.connection = None
+        if not self.connection:
+            try:
+                self.logger.info("Attempting to connect...")
+                conn_url = f"amqp://{self.user}:{self.password}@{self.host}:{self.port}"
+                self.connection = self.container.connect(conn_url, reconnect=True)
+                self.logger.info(f"Connecting to {conn_url}")
+            except Exception as e:
+                self.logger.error(f"Error in connection: {e}")
+                self.connection = None
 
     def on_start(self, event):
         if self.user and self.password:
             event.container.sasl_enabled = True
             event.container.allowed_mechs = "PLAIN"
-        self.connection = event.container.connect(self.host, self.port, self.user, self.password, reconnect=True)
+        self.connect()
 
     def on_connection_opened(self, event):
         self.logger.info("Connection opened")
