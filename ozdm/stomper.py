@@ -22,6 +22,7 @@ class ReconnectListener(MessagingHandler):
 
     def __init__(self, host, port, user=None, password=None, logger=None):
         super().__init__()
+        self.container = container
         self.host = host
         self.port = port
         self.logger = logger or logging.root
@@ -39,11 +40,8 @@ class ReconnectListener(MessagingHandler):
         print("Attempting to connect...")
         try:
             conn_url = f"amqp://{self.user}:{self.password}@{self.host}:{self.port}"
-            self.container = Container(self)
             self.container.create_connection(conn_url)
-            self.container.run()
-            self.connection = self.container
-            print(f"Connected to {conn_url}")
+            print(f"Connecting to {conn_url}")
         except Exception as e:
             print(f"Error in connection: {e}")
 
@@ -150,15 +148,13 @@ class AvroStomper:
         self.user = user
         self.password = password
         self.logger = logger or logging.root
-        self.container = None
+        self.container = Container()
         self.topic_listener = TopicListener(logger=logger)
         self.connection = None
 
     def connect(self):
         print("Initializing AvroStomper connection...")
         try:
-            reconnect_listener = ReconnectListener(host=self.host, port=self.port, user=self.user, password=self.password, logger=self.logger)
-            self.container = Container(reconnect_listener)
             self.container.run()
             print("AvroStomper connected successfully.")
         except Exception as e:
