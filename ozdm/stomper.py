@@ -36,13 +36,14 @@ class ReconnectListener(MessagingHandler):
         self.logger.info('Received a message: %s' % event.message.body)
 
     def connect(self):
+        self.logger.info("Attempting to connect...")
         try:
-            self.logger.info("Attempting to connect...")
             conn_url = f"amqp://{self.user}:{self.password}@{self.host}:{self.port}"
-            self.container.connect(conn_url)
+            self.connection = self.container.connect(conn_url, reconnect=True)
             self.logger.info(f"Connecting to {conn_url}")
         except Exception as e:
             self.logger.error(f"Error in connection: {e}")
+            self.connection = None
 
     def on_start(self, event):
         if self.user and self.password:
@@ -137,19 +138,31 @@ class TopicListener(MessagingHandler):
                                              observer=observer))
 
 class AvroStomper:
-    def __init__(self, host, port, user, password, logger):
+    def __init__(self, host, port, user, password, logger=None):
         self.host = host
         self.port = port
         self.user = user
         self.password = password
-        self.logger = logger or logging.root
+        self.logger = logger or logging.getLogger(__name__)
         self.container = Container()
-        self.reconnect_listener = ReconnectListener(container=self.container, host=host, port=port, user=user, password=password, logger=logger, connection_callback=self.update_connection)
+        self.reconnect_listener = ReconnectListener(
+            container=self.container,
+            host=self.host,
+            port=self.port,
+            user=self.user,
+            password=self.password,
+            logger=self.logger,
+            connection_callback=self.update_connection
+        )
         self.container.selectable(self.reconnect_listener)
         self.connection = None
 
     def update_connection(self, connection):
         self.connection = connection
+        if connection:
+            self.logger.info("Connection established.")
+        else:
+            self.logger.warning("Connection lost.")
 
     def connect(self):
         if not self.connection:
