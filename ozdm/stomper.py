@@ -58,8 +58,9 @@ class ReconnectListener(MessagingHandler):
     def on_subscribe(self, event):
         i = 1
         for t in self._topics:
-            event.container.create_receiver(event.connection, t, name=i)
-            i = i + 1
+            receiver = event.container.create_receiver(event.connection, t, name=i)
+            receiver.flow(1)  # Start the receiver
+            i += 1
 
     def subscribed(self, topic):
         self._topics.add(topic)
@@ -148,8 +149,8 @@ class AvroStomper:
     def connect(self):
         conn_url = f"amqp://{self.user}:{self.password}@{self.host}:{self.port}"
         self.container = Container(ReconnectListener(user=self.user, password=self.password, logger=self.logger))
-        self.container.create_sender(conn_url)
         self.container.create_receiver(conn_url)
+        self.container.create_sender(conn_url)
         self.container.run()
         self.connection = self.container
 
