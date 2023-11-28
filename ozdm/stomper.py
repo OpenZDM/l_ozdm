@@ -58,7 +58,7 @@ class ReconnectListener(MessagingHandler):
         if self.user is not None and self.password is not None:
             event.container.sasl_enabled = True
             event.container.allowed_mechs = "PLAIN"
-        event.container.connect(self.user, self.password)
+        event.container.connect(self.host, self.port, self.user, self.password)
 
     def on_subscribe(self, event):
         i = 1
@@ -147,8 +147,21 @@ class AvroStomper:
         self.user = user
         self.password = password
         self.logger = logger or logging.root
+
         self.container = Container()
-        self.topic_listener = TopicListener(logger=logger)
+
+        self.reconnect_listener = ReconnectListener(
+            container=self.container,
+            host=self.host,
+            port=self.port,
+            user=self.user,
+            password=self.password,
+            logger=self.logger
+        )
+        self.container.selectable(self.reconnect_listener)
+
+        self.topic_listener = TopicListener(logger=self.logger)
+
         self.connection = None
 
     def connect(self):
@@ -158,6 +171,7 @@ class AvroStomper:
             print("AvroStomper connected successfully.")
         except Exception as e:
             print(f"Error in AvroStomper connect: {e}")
+
 
     def disconnect(self):
         self.container.stop()
@@ -171,7 +185,6 @@ class AvroStomper:
     def send(self, topic: str, avro_object: avroer.AvroObject) -> None:
         serialize = avroer.AvroSerializer(schema=avro_object.schema)
         content = serialize(content=avro_object.data)
-
         message = Message()
         message.subject = topic
         message.body = content
