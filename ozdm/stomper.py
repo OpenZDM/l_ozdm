@@ -20,8 +20,10 @@ class MessageListener(abc.ABC):
 class ReconnectListener(MessagingHandler):
     _topics: set[str] = set()
 
-    def __init__(self, user=None, password=None, logger=None):
+    def __init__(self, host, port, user=None, password=None, logger=None):
         super().__init__()
+        self.host = host
+        self.port = port
         self.logger = logger or logging.root
         self.user = user
         self.password = password
@@ -34,13 +36,19 @@ class ReconnectListener(MessagingHandler):
         self.logger.debug('received a message "%s"' % event.message.body)
 
     def connect(self):
-        conn_url = f"amqp://{self.user}:{self.password}@{self.host}:{self.port}"
-        self.container = Container(self)
-        self.container.create_connection(conn_url)
-        self.container.run()
-        self.connection = self.container
+        print("Attempting to connect...")
+        try:
+            conn_url = f"amqp://{self.user}:{self.password}@{self.host}:{self.port}"
+            self.container = Container(self)
+            self.container.create_connection(conn_url)
+            self.container.run()
+            self.connection = self.container
+            print(f"Connected to {conn_url}")
+        except Exception as e:
+            print(f"Error in connection: {e}")
 
     def on_disconnected(self, event):
+        print("Disconnected. Attempting to reconnect...")
         self.logger.info('Reconnecting...')
         self.connect()
         i = 1
@@ -142,17 +150,19 @@ class AvroStomper:
         self.user = user
         self.password = password
         self.logger = logger or logging.root
-        self.container = None  # Remove container initialization here
+        self.container = None
         self.topic_listener = TopicListener(logger=logger)
         self.connection = None
 
     def connect(self):
-        conn_url = f"amqp://{self.user}:{self.password}@{self.host}:{self.port}"
-        self.container = Container(ReconnectListener(user=self.user, password=self.password, logger=self.logger))
-        self.container.create_receiver(conn_url)
-        self.container.create_sender(conn_url)
-        self.container.run()
-        self.connection = self.container
+        print("Initializing AvroStomper connection...")
+        try:
+            reconnect_listener = ReconnectListener(host=self.host, port=self.port, user=self.user, password=self.password, logger=self.logger)
+            self.container = Container(reconnect_listener)
+            self.container.run()
+            print("AvroStomper connected successfully.")
+        except Exception as e:
+            print(f"Error in AvroStomper connect: {e}")
 
     def disconnect(self):
         self.container.stop()
@@ -202,7 +212,7 @@ class AvroStomper:
 #         event.connection.close()
 #
 # def main():
-#     server_url = 'amqp://artemis:artemis@localhost:61616'
+#     server_url = 'amqp://artemis:artemis@artemis:61616'
 #     queue_name = 'example_queue'
 #
 #     producer = SimpleQueueProducer(server_url, queue_name)
