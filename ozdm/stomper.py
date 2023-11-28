@@ -1,9 +1,11 @@
 import abc
 import logging
 from typing import Dict, List
+import time
 
 import avro.schema
-from proton import Message
+from proton._message import Message
+#change here
 from proton.handlers import MessagingHandler
 from proton.reactor import Container
 
@@ -32,7 +34,7 @@ class ReconnectListener(MessagingHandler):
     def on_message(self, event):
         self.logger.debug('received a message "%s"' % event.message.body)
 
-    def connect(self):  # Keep the 'connect' method here as requested.
+    def connect(self):
         conn_url = f"amqp://{self.user}:{self.password}@{self.host}:{self.port}"
         self.container.create_connection(conn_url)
         self.container.run()
@@ -173,3 +175,39 @@ class AvroStomper:
             sender.send(message)
         else:
             self.logger.error("Connection not established.")
+
+
+# class SimpleQueueProducer(MessagingHandler):
+#     def __init__(self, server_url, queue_name):
+#         super(SimpleQueueProducer, self).__init__()
+#         self.server_url = server_url
+#         self.queue_name = queue_name
+#         self.connection = None
+#
+#     def on_start(self, event):
+#         print("Connection established to", self.server_url)
+#         self.connection = event.container.connect(self.server_url)
+#
+#     def on_connection_opened(self, event):
+#         print("Connection opened and ready for use")
+#         self.sender = event.container.create_sender(self.connection, self.queue_name)
+#
+#     def on_sendable(self, event):
+#         message = Message(body="Hello, World!")
+#         self.sender.send(message)
+#         print("Message sent")
+#         event.connection.close()
+#
+# def main():
+#     server_url = 'amqp://artemis:artemis@localhost:61616'
+#     queue_name = 'example_queue'
+#
+#     producer = SimpleQueueProducer(server_url, queue_name)
+#     Container(producer).run()
+#
+# if __name__ == "__main__":
+#     main()
+
+
+
+
