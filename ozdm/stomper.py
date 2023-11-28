@@ -45,16 +45,19 @@ class ReconnectListener(MessagingHandler):
         except Exception as e:
             print(f"Error in connection: {e}")
 
+    def on_connection_opened(self, event):
+        print("Connection opened with Artemis server")
+        self.connection = event.connection
+
     def on_disconnected(self, event):
-        print("Disconnected. Attempting to reconnect...")
-        self.logger.info('Reconnecting...')
+        print("Disconnected from Artemis server")
+        self.connection = None
         self.connect()
-        i = 1
-        for t in self._topics:
-            self.connection.create_receiver(f"{t}:{i}")
-            i = i + 1
+        for topic in self._topics:
+            self.container.create_receiver(topic)
 
     def on_start(self, event):
+        print("ReconnectListener on_start called")
         if self.user is not None and self.password is not None:
             event.container.sasl_enabled = True
             event.container.allowed_mechs = "PLAIN"
