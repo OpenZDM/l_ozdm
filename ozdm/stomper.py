@@ -20,7 +20,7 @@ class MessageListener(abc.ABC):
 class ReconnectListener(MessagingHandler):
     _topics: set[str] = set()
 
-    def __init__(self, host, port, user=None, password=None, logger=None):
+    def __init__(self, container, host, port, user=None, password=None, logger=None):
         super().__init__()
         self.container = container
         self.host = host
