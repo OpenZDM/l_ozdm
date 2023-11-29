@@ -54,7 +54,13 @@ class ReconnectListener(MessagingHandler):
 
     def on_connection_opened(self, event):
         self.logger.info("Connection opened")
-        self.connection_callback(event.connection)
+        if self.connection_callback:
+            self.connection_callback(event.connection)
+        # Create a sender when the connection is opened
+        try:
+            self.sender = event.container.create_sender(event.connection, None)  # Update target as needed
+        except Exception as e:
+            self.logger.error(f"Error creating sender: {e}", exc_info=True)
 
     def on_disconnected(self, event):
         self.logger.info("Disconnected")
@@ -155,6 +161,7 @@ class AvroStomper:
         self.is_connected = connection is not None
         if connection:
             self.logger.info("Connection established.")
+            # The sender will be created in ReconnectListener when the connection is opened
         else:
             self.logger.warning("Connection lost.")
             self.sender = None
@@ -187,26 +194,12 @@ class AvroStomper:
             message.body = content
 
             self.logger.debug("Attempting to send message")
-            if not self.sender:
-                self.sender = self.container.create_sender(topic)
-            self.sender.send(message)
-            self.logger.info(f"Message sent to {topic}")
-        except Exception as e:
-            self.logger.error(f"Error while sending message: {e}", exc_info=True)
-
-        try:
-            self.logger.debug("Serializing Avro object")
-            serialize = AvroSerializer(schema=avro_object.schema)
-            content = serialize(content=avro_object.data)
-            message = Message()
-            message.subject = topic
-            message.body = content
-
-            self.logger.debug("Attempting to send message")
-            if not self.sender:
-                self.sender = self.connection.create_sender(topic)
-            self.sender.send(message)
-            self.logger.info(f"Message sent to {topic}")
+            # Ensure that sender is available and connected
+            if self.sender and self.sender.is_sendable():
+                self.sender.send(message)
+                self.logger.info(f"Message sent to {topic}")
+            else:
+                self.logger.error("Sender is not available or not sendable.")
         except Exception as e:
             self.logger.error(f"Error while sending message: {e}", exc_info=True)
 
