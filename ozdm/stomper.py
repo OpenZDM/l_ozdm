@@ -38,8 +38,8 @@ class ReconnectListener(MessagingHandler):
             try:
                 self.logger.info("Attempting to connect...")
                 conn_url = f"amqp://{self.user}:{self.password}@{self.host}:{self.port}"
-                self.connection = self.container.connect(conn_url, reconnect=True)
-                self.container.create_sender(self.connection, None)  # Added: Create a default sender
+                self.connection = self.container.connect(conn_url, reconnect=[10, 10, 10])  # Example intervals
+                self.container.create_sender(self.connection, None)
                 self.logger.info(f"Connecting to {conn_url}")
             except Exception as e:
                 self.logger.error(f"Error in connection: {e}", exc_info=True)
@@ -58,7 +58,6 @@ class ReconnectListener(MessagingHandler):
     def on_disconnected(self, event):
         self.logger.info("Disconnected")
         self.connection_callback(None)
-
 
 class TopicValue:
     def __init__(self, topic: str, listen_schema_name: str, schema: avro.schema.Schema, observer: MessageListener):
@@ -148,16 +147,18 @@ class AvroStomper:
         self.container.selectable(self.reconnect_listener)
         self.connection = None
         self.topic_listener = TopicListener(logger=self.logger)
+        self.is_connected = False  # Track connection status
 
     def update_connection(self, connection):
         self.connection = connection
+        self.is_connected = connection is not None
         if connection:
             self.logger.info("Connection established.")
         else:
             self.logger.warning("Connection lost.")
 
     def connect(self):
-        if not self.connection:
+        if not self.is_connected:
             self.logger.info("Initializing AvroStomper connection...")
             self.reconnect_listener.connect()
             try:
@@ -170,7 +171,7 @@ class AvroStomper:
         self.container.stop()
 
     def send(self, topic, avro_object):
-        if not self.connection:
+        if not self.is_connected:
             self.logger.error("Connection not established.")
             return
         try:
@@ -186,10 +187,11 @@ class AvroStomper:
             self.logger.error(f"Error sending message: {e}")
 
     def subscribe(self, observer: MessageListener, topic: str, schema: avro.schema.Schema = None,
-                  listen_schema_name: str = None) -> None:
+                  listen_schema_name: str = None):
         self.topic_listener.subscribe(observer=observer, topic=topic, schema=schema,
                                       listen_schema_name=listen_schema_name)
         self.reconnect_listener.subscribed(topic)
+
 
 
 # class SimpleQueueProducer(MessagingHandler):
@@ -222,3 +224,35 @@ class AvroStomper:
 #
 # if __name__ == "__main__":
 #     main()
+
+
+# def main():
+#     host = "localhost"  # Update with your AMQP server's host
+#     port = 61616  # Update with your AMQP server's port
+#     user = "artemis"  # Update with your credentials
+#     password = "artemis"  # Update with your credentials
+#
+#     # Set up logging
+#     logging.basicConfig(level=logging.INFO)
+#     logger = logging.getLogger(__name__)
+#
+#     # Create AvroStomper instance
+#     avro_stomper = AvroStomper(host, port, user, password, logger)
+#
+#     # Connect AvroStomper
+#     avro_stomper.connect()
+#
+#     # Send a simple text message
+#     try:
+#         test_message = Message(body="Hello, World!")
+#         avro_stomper.send("test_topic", test_message)
+#         print("Message sent successfully.")
+#     except Exception as e:
+#         logger.error(f"Failed to send message: {e}")
+#
+#     # Disconnect
+#     avro_stomper.disconnect()
+#
+# if __name__ == "__main__":
+#     main()
+
