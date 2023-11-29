@@ -173,17 +173,20 @@ class AvroStomper:
         self.container.stop()
 
     def send(self, topic, avro_object):
-        if not self.is_connected or self.sender is None:
-            self.logger.error("Connection not established or sender not created.")
-            return
+        if not self.is_connected:
+            self.logger.error("Connection not established. Attempting to connect...")
+            self.connect()
+
         try:
             serialize = AvroSerializer(schema=avro_object.schema)
             content = serialize(content=avro_object.data)
             message = Message()
             message.subject = topic
             message.body = content
-            self.sender.send(message)
-            self.logger.info(f"Message sent to {topic}")
+
+            with self.connection.create_sender(topic) as sender:
+                sender.send(message)
+                self.logger.info(f"Message sent to {topic}")
         except Exception as e:
             self.logger.error(f"Error sending message: {e}")
 
