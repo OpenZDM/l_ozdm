@@ -194,11 +194,10 @@ class AvroStomper:
             message.body = content
 
             self.logger.debug("Attempting to send message")
-            if not self.sender or not self.sender.is_sendable():
-                # Create or recreate the sender
-                self.sender = self.connection.create_sender(topic)
-            self.sender.send(message)
-            self.logger.info(f"Message sent to {topic}")
+            # Use the container to create a sender
+            with self.container.create_sender(self.connection, topic) as sender:
+                sender.send(message)
+                self.logger.info(f"Message sent to {topic}")
         except Exception as e:
             self.logger.error(f"Error while sending message: {e}", exc_info=True)
 
