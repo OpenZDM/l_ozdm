@@ -10,6 +10,7 @@ from proton.reactor import Container
 from ozdm import avroer
 from ozdm.avroer import AvroSerializer, AvroDeserializer
 
+
 class MessageListener(abc.ABC):
     @abc.abstractmethod
     def on_message(self, subject: avroer.AvroObject) -> None:
@@ -154,7 +155,7 @@ class AvroStomper:
         self.is_connected = connection is not None
         if connection:
             self.logger.info("Connection established.")
-            self.sender = self.connection.create_sender(None)
+            self.sender = self.connection.create_sender(None)  # Sender creation
         else:
             self.logger.warning("Connection lost.")
             self.sender = None
@@ -163,11 +164,8 @@ class AvroStomper:
         if not self.is_connected:
             self.logger.info("Initializing AvroStomper connection...")
             self.reconnect_listener.connect()
-            try:
-                self.container.run()
-                self.logger.info("AvroStomper connected successfully.")
-            except Exception as e:
-                self.logger.error(f"Error in AvroStomper connect: {e}", exc_info=True)
+            self.update_connection(self.reconnect_listener.connection)
+            self.logger.info("AvroStomper connected successfully.")
 
     def disconnect(self):
         self.container.stop()
@@ -177,6 +175,9 @@ class AvroStomper:
         if not self.is_connected:
             self.logger.error("Connection not established. Attempting to connect...")
             self.connect()
+            if not self.is_connected:
+                self.logger.error("Failed to establish connection. Cannot send message.")
+                return
 
         try:
             self.logger.debug("Serializing Avro object")
@@ -186,12 +187,13 @@ class AvroStomper:
             message.subject = topic
             message.body = content
 
-            self.logger.debug("Creating sender and sending message")
-            with self.connection.create_sender(topic) as sender:
-                sender.send(message)
-                self.logger.info(f"Message sent to {topic}")
+            self.logger.debug("Attempting to send message")
+            if not self.sender:
+                self.sender = self.connection.create_sender(topic)
+            self.sender.send(message)
+            self.logger.info(f"Message sent to {topic}")
         except Exception as e:
-            self.logger.error(f"Error in send method: {e}", exc_info=True)
+            self.logger.error(f"Error while sending message: {e}", exc_info=True)
 
     def subscribe(self, observer: MessageListener, topic: str, schema: avro.schema.Schema = None,
                   listen_schema_name: str = None):
