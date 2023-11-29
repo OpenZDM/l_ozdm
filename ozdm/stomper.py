@@ -1,7 +1,6 @@
 import abc
 import logging
 from typing import Dict, List
-import time
 
 import avro.schema
 from proton._message import Message
@@ -12,7 +11,6 @@ from ozdm import avroer
 from ozdm.avroer import AvroSerializer, AvroDeserializer
 
 class MessageListener(abc.ABC):
-
     @abc.abstractmethod
     def on_message(self, subject: avroer.AvroObject) -> None:
         pass
@@ -60,13 +58,6 @@ class ReconnectListener(MessagingHandler):
         self.logger.info("Disconnected")
         self.connection_callback(None)
 
-    def on_subscribe(self, event):
-        for i, topic in enumerate(self._topics, start=1):
-            receiver = event.container.create_receiver(event.connection, topic, name=str(i))
-            receiver.flow(1)
-
-    def subscribed(self, topic):
-        self._topics.add(topic)
 
 class TopicValue:
     def __init__(self, topic: str, listen_schema_name: str, schema: avro.schema.Schema, observer: MessageListener):
@@ -76,7 +67,6 @@ class TopicValue:
         self.observer = observer
 
     def __eq__(self, other):
-        """Overrides the default implementation"""
         if isinstance(other, TopicValue):
             return self.topic == other.topic and self.listen_schema_name == other.listen_schema_name
         return False
@@ -126,7 +116,6 @@ class TopicListener(MessagingHandler):
             avro_object = avroer.AvroObject(schema=inferred_schema, data=d)
             for observer in observers:
                 observer.on_message(avro_object)
-                print(f"Received message: {avro_object}")
 
     def subscribe(self, observer: MessageListener, topic: str, schema: avro.schema.Schema,
                   listen_schema_name: str = None) -> None:
@@ -157,6 +146,7 @@ class AvroStomper:
         )
         self.container.selectable(self.reconnect_listener)
         self.connection = None
+        self.topic_listener = TopicListener(logger=self.logger)
 
     def update_connection(self, connection):
         self.connection = connection
@@ -173,7 +163,6 @@ class AvroStomper:
                 self.logger.info("AvroStomper connected successfully.")
             except Exception as e:
                 self.logger.error(f"Error in AvroStomper connect: {e}")
-
 
     def disconnect(self):
         self.container.stop()
@@ -198,41 +187,4 @@ class AvroStomper:
                   listen_schema_name: str = None) -> None:
         self.topic_listener.subscribe(observer=observer, topic=topic, schema=schema,
                                       listen_schema_name=listen_schema_name)
-        ReconnectListener.subscribed(self, topic)
-
-
-
-# class SimpleQueueProducer(MessagingHandler):
-#     def __init__(self, server_url, queue_name):
-#         super(SimpleQueueProducer, self).__init__()
-#         self.server_url = server_url
-#         self.queue_name = queue_name
-#         self.connection = None
-#
-#     def on_start(self, event):
-#         print("Connection established to", self.server_url)
-#         self.connection = event.container.connect(self.server_url)
-#
-#     def on_connection_opened(self, event):
-#         print("Connection opened and ready for use")
-#         self.sender = event.container.create_sender(self.connection, self.queue_name)
-#
-#     def on_sendable(self, event):
-#         message = Message(body="Hello, World!")
-#         self.sender.send(message)
-#         print("Message sent")
-#         event.connection.close()
-#
-# def main():
-#     server_url = 'amqp://artemis:artemis@artemis:61616'
-#     queue_name = 'example_queue'
-#
-#     producer = SimpleQueueProducer(server_url, queue_name)
-#     Container(producer).run()
-#
-# if __name__ == "__main__":
-#     main()
-
-
-
-
+        self.reconnect_listener.subscribed(topic)
