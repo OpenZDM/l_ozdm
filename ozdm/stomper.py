@@ -180,17 +180,17 @@ class AvroStomper:
 
         try:
             self.logger.debug("Serializing Avro object")
-            serialize = AvroSerializer(schema=avro_object.schema)
-            content = serialize(content=avro_object.data)
+            serializer = AvroSerializer(schema=avro_object.schema)
+            content = serializer(content=avro_object.data)
             message = Message()
             message.subject = topic
             message.body = content
 
             self.logger.debug("Attempting to send message")
-            # Create sender here with the topic as the address
-            with self.connection.create_sender(topic) as sender:
-                sender.send(message)
-                self.logger.info(f"Message sent to {topic}")
+            if not self.sender:
+                self.sender = self.container.create_sender(topic)
+            self.sender.send(message)
+            self.logger.info(f"Message sent to {topic}")
         except Exception as e:
             self.logger.error(f"Error while sending message: {e}", exc_info=True)
 
