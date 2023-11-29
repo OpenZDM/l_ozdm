@@ -39,9 +39,10 @@ class ReconnectListener(MessagingHandler):
                 self.logger.info("Attempting to connect...")
                 conn_url = f"amqp://{self.user}:{self.password}@{self.host}:{self.port}"
                 self.connection = self.container.connect(conn_url, reconnect=True)
+                self.container.create_sender(self.connection, None)  # Added: Create a default sender
                 self.logger.info(f"Connecting to {conn_url}")
             except Exception as e:
-                self.logger.error(f"Error in connection: {e}")
+                self.logger.error(f"Error in connection: {e}", exc_info=True)
                 self.connection = None
 
     def on_start(self, event):
@@ -158,11 +159,12 @@ class AvroStomper:
     def connect(self):
         if not self.connection:
             self.logger.info("Initializing AvroStomper connection...")
+            self.reconnect_listener.connect()
             try:
                 self.container.run()
                 self.logger.info("AvroStomper connected successfully.")
             except Exception as e:
-                self.logger.error(f"Error in AvroStomper connect: {e}")
+                self.logger.error(f"Error in AvroStomper connect: {e}", exc_info=True)
 
     def disconnect(self):
         self.container.stop()
@@ -188,3 +190,35 @@ class AvroStomper:
         self.topic_listener.subscribe(observer=observer, topic=topic, schema=schema,
                                       listen_schema_name=listen_schema_name)
         self.reconnect_listener.subscribed(topic)
+
+
+class SimpleQueueProducer(MessagingHandler):
+    def __init__(self, server_url, queue_name):
+        super(SimpleQueueProducer, self).__init__()
+        self.server_url = server_url
+        self.queue_name = queue_name
+        self.connection = None
+
+    def on_start(self, event):
+        print("Connection established to", self.server_url)
+        self.connection = event.container.connect(self.server_url)
+
+    def on_connection_opened(self, event):
+        print("Connection opened and ready for use")
+        self.sender = event.container.create_sender(self.connection, self.queue_name)
+
+    def on_sendable(self, event):
+        message = Message(body="Hello, World!")
+        self.sender.send(message)
+        print("Message sent")
+        event.connection.close()
+
+def main():
+    server_url = 'amqp://artemis:artemis@artemis:61616'
+    queue_name = 'example_queue'
+
+    producer = SimpleQueueProducer(server_url, queue_name)
+    Container(producer).run()
+
+if __name__ == "__main__":
+    main()
