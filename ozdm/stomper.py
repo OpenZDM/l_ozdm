@@ -54,7 +54,6 @@ class ReconnectListener(MessagingHandler):
 
     def on_connection_opened(self, event):
         self.logger.info("Connection opened")
-        self.connection = event.connection
         self.connection_callback(event.connection)
 
     def on_disconnected(self, event):
@@ -156,7 +155,6 @@ class AvroStomper:
         self.is_connected = connection is not None
         if connection:
             self.logger.info("Connection established.")
-            self.sender = self.connection.create_sender(None)  # Sender creation
         else:
             self.logger.warning("Connection lost.")
             self.sender = None
@@ -165,7 +163,8 @@ class AvroStomper:
         if not self.is_connected:
             self.logger.info("Initializing AvroStomper connection...")
             self.reconnect_listener.connect()
-            self.logger.info("AvroStomper connection process initiated.")
+            self.update_connection(self.reconnect_listener.connection)
+            self.logger.info("AvroStomper connected successfully.")
 
     def disconnect(self):
         self.container.stop()
@@ -178,6 +177,22 @@ class AvroStomper:
             if not self.is_connected:
                 self.logger.error("Failed to establish connection. Cannot send message.")
                 return
+
+        try:
+            self.logger.debug("Serializing Avro object")
+            serialize = AvroSerializer(schema=avro_object.schema)
+            content = serialize(content=avro_object.data)
+            message = Message()
+            message.subject = topic
+            message.body = content
+
+            self.logger.debug("Attempting to send message")
+            # Create sender here with the topic as the address
+            with self.connection.create_sender(topic) as sender:
+                sender.send(message)
+                self.logger.info(f"Message sent to {topic}")
+        except Exception as e:
+            self.logger.error(f"Error while sending message: {e}", exc_info=True)
 
         try:
             self.logger.debug("Serializing Avro object")
@@ -264,4 +279,3 @@ class AvroStomper:
 #
 # if __name__ == "__main__":
 #     main()
-
