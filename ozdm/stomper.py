@@ -54,6 +54,7 @@ class ReconnectListener(MessagingHandler):
 
     def on_connection_opened(self, event):
         self.logger.info("Connection opened")
+        self.connection = event.connection
         self.connection_callback(event.connection)
 
     def on_disconnected(self, event):
@@ -164,8 +165,7 @@ class AvroStomper:
         if not self.is_connected:
             self.logger.info("Initializing AvroStomper connection...")
             self.reconnect_listener.connect()
-            self.update_connection(self.reconnect_listener.connection)
-            self.logger.info("AvroStomper connected successfully.")
+            self.logger.info("AvroStomper connection process initiated.")
 
     def disconnect(self):
         self.container.stop()
