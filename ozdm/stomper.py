@@ -144,18 +144,20 @@ class AvroStomper:
             logger=self.logger,
             connection_callback=self.update_connection
         )
-        self.container.selectable(self.reconnect_listener)
         self.connection = None
+        self.sender = None
         self.topic_listener = TopicListener(logger=self.logger)
-        self.is_connected = False  # Track connection status
+        self.is_connected = False
 
     def update_connection(self, connection):
         self.connection = connection
         self.is_connected = connection is not None
         if connection:
             self.logger.info("Connection established.")
+            self.sender = self.connection.create_sender(None)
         else:
             self.logger.warning("Connection lost.")
+            self.sender = None
 
     def connect(self):
         if not self.is_connected:
@@ -171,8 +173,8 @@ class AvroStomper:
         self.container.stop()
 
     def send(self, topic, avro_object):
-        if not self.is_connected:
-            self.logger.error("Connection not established.")
+        if not self.is_connected or self.sender is None:
+            self.logger.error("Connection not established or sender not created.")
             return
         try:
             serialize = AvroSerializer(schema=avro_object.schema)
@@ -180,8 +182,7 @@ class AvroStomper:
             message = Message()
             message.subject = topic
             message.body = content
-            sender = self.connection.create_sender(topic)
-            sender.send(message)
+            self.sender.send(message)
             self.logger.info(f"Message sent to {topic}")
         except Exception as e:
             self.logger.error(f"Error sending message: {e}")

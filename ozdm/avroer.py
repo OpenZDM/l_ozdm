@@ -122,19 +122,18 @@ class AvroSerializer:
         return data
 
 
-class AvroSerializer:
-    def __init__(self, schema: avro.schema.Schema):
-        self.avro_schema = schema
 
-    def __call__(self, content: dict) -> bytes:
-        buf = io.BytesIO()
-        writer = avro.datafile.DataFileWriter(buf, avro.io.DatumWriter(), self.avro_schema)
-        writer.append(content)
-        writer.flush()
-        buf.seek(0)
-        data = buf.read()
-        return data
+class AvroDeserializer:
 
+    def __call__(self, payload: bytes) -> (avro.schema.Schema, list):
+        message_buf = io.BytesIO(payload)
+        reader = avro.datafile.DataFileReader(message_buf, avro.io.DatumReader())
+        schema = reader.schema
+        content = []
+        for thing in reader:
+            content.append(thing)
+        reader.close()
+        return schema, content
 
 
 class SchemaException(Exception):
