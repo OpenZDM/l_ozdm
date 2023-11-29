@@ -192,33 +192,33 @@ class AvroStomper:
         self.reconnect_listener.subscribed(topic)
 
 
-class SimpleQueueProducer(MessagingHandler):
-    def __init__(self, server_url, queue_name):
-        super(SimpleQueueProducer, self).__init__()
-        self.server_url = server_url
-        self.queue_name = queue_name
-        self.connection = None
-
-    def on_start(self, event):
-        print("Connection established to", self.server_url)
-        self.connection = event.container.connect(self.server_url)
-
-    def on_connection_opened(self, event):
-        print("Connection opened and ready for use")
-        self.sender = event.container.create_sender(self.connection, self.queue_name)
-
-    def on_sendable(self, event):
-        message = Message(body="Hello, World!")
-        self.sender.send(message)
-        print("Message sent")
-        event.connection.close()
-
-def main():
-    server_url = 'amqp://artemis:artemis@artemis:61616'
-    queue_name = 'example_queue'
-
-    producer = SimpleQueueProducer(server_url, queue_name)
-    Container(producer).run()
-
-if __name__ == "__main__":
-    main()
+# class SimpleQueueProducer(MessagingHandler):
+#     def __init__(self, server_url, queue_name):
+#         super(SimpleQueueProducer, self).__init__()
+#         self.server_url = server_url
+#         self.queue_name = queue_name
+#         self.connection = None
+#
+#     def on_start(self, event):
+#         print("Connection established to", self.server_url)
+#         self.connection = event.container.connect(self.server_url)
+#
+#     def on_connection_opened(self, event):
+#         print("Connection opened and ready for use")
+#         self.sender = event.container.create_sender(self.connection, self.queue_name)
+#
+#     def on_sendable(self, event):
+#         message = Message(body="Hello, World!")
+#         self.sender.send(message)
+#         print("Message sent")
+#         event.connection.close()
+#
+# def main():
+#     server_url = 'amqp://artemis:artemis@artemis:61616'
+#     queue_name = 'example_queue'
+#
+#     producer = SimpleQueueProducer(server_url, queue_name)
+#     Container(producer).run()
+#
+# if __name__ == "__main__":
+#     main()
