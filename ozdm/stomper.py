@@ -143,17 +143,32 @@ class AvroStomper(MessagingHandler):
         self.password = password
         self.logger = logger or logging.getLogger(__name__)
         self.url = f"amqp://{user}:{password}@{host}:{port}"
-        self.connected = False
         self.sender = None
+        self.connected = False
+        self.container = None
+        self.topic = None
 
-    def connect(self, event):
+    def connect(self, topic=None):
+        if not self.connected:
+            self.topic = topic
+            try:
+                self.container = Container(self)
+                self.container.run()
+            except Exception as e:
+                self.logger.error(f"Connection error: {e}")
+                self.connected = False
+
+    def on_start(self, event):
         self.logger.info("Starting AvroStomper...")
         try:
             conn = event.container.connect(
                 url=self.url,
                 sasl_enabled=True,
-                allowed_mechs="PLAIN"
+                allowed_mechs="PLAIN",
+                reconnect=True
             )
+            if self.topic:
+                self.sender = event.container.create_sender(conn, self.topic)
             self.connected = True
             self.logger.info(f"Connected to AMQP server at {self.url}")
         except Exception as e:
