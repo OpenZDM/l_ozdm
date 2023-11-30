@@ -165,12 +165,16 @@ class AvroStomper:
                 self.sender = None
 
     def send(self, topic, avro_object):
-        if not self.is_connected or (self.sender is None and not self.topic):
-            self.logger.error("Connection not established or topic not set. Attempting to reconnect...")
+        if not self.is_connected:
+            self.logger.error("Connection not established. Attempting to connect...")
             self.connect(topic)
             if not self.is_connected:
                 self.logger.error("Failed to establish connection. Cannot send message.")
                 return
+
+        if self.sender is None or self.topic != topic:
+            self.sender = self.container.create_sender(self.connection, topic)
+            self.topic = topic
 
         try:
             serializer = AvroSerializer(schema=avro_object.schema)
@@ -178,9 +182,6 @@ class AvroStomper:
             message = Message()
             message.subject = topic
             message.body = content
-
-            if self.sender is None and self.topic:
-                self.sender = self.container.create_sender(self.connection, self.topic)
 
             if self.sender:
                 self.sender.send(message)
@@ -199,11 +200,11 @@ class AvroStomper:
         self.is_connected = False
         self.sender = None
 
-    def subscribe(self, observer: MessageListener, topic: str, schema: avro.schema.Schema = None,
-                  listen_schema_name: str = None):
-        self.topic_listener.subscribe(observer=observer, topic=topic, schema=schema,
-                                      listen_schema_name=listen_schema_name)
-        self.reconnect_listener.subscribed(topic)
+    # def subscribe(self, observer: MessageListener, topic: str, schema: avro.schema.Schema = None,
+    #               listen_schema_name: str = None):
+    #     self.topic_listener.subscribe(observer=observer, topic=topic, schema=schema,
+    #                                   listen_schema_name=listen_schema_name)
+    #     self.reconnect_listener.subscribed(topic)
 
 
 
