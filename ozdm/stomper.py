@@ -145,8 +145,9 @@ class AvroStomper:
         self.connection = None
         self.sender = None
         self.is_connected = False
+        self.topic = None
 
-    def connect(self, topic):
+    def connect(self, topic=None):
         if not self.is_connected:
             try:
                 self.logger.info("Initializing AvroStomper connection...")
@@ -154,7 +155,9 @@ class AvroStomper:
                 self.connection = self.container.connect(conn_url)
                 self.is_connected = True
                 self.logger.info("AvroStomper connected successfully.")
-                self.sender = self.container.create_sender(self.connection, topic)
+                if topic:
+                    self.topic = topic
+                    self.sender = self.container.create_sender(self.connection, topic)
             except Exception as e:
                 self.logger.error(f"Error in connection: {e}", exc_info=True)
                 self.connection = None
@@ -162,8 +165,8 @@ class AvroStomper:
                 self.sender = None
 
     def send(self, topic, avro_object):
-        if not self.is_connected or self.sender is None:
-            self.logger.error("Connection not established. Attempting to reconnect...")
+        if not self.is_connected or (self.sender is None and not self.topic):
+            self.logger.error("Connection not established or topic not set. Attempting to reconnect...")
             self.connect(topic)
             if not self.is_connected:
                 self.logger.error("Failed to establish connection. Cannot send message.")
@@ -175,6 +178,9 @@ class AvroStomper:
             message = Message()
             message.subject = topic
             message.body = content
+
+            if self.sender is None and self.topic:
+                self.sender = self.container.create_sender(self.connection, self.topic)
 
             if self.sender:
                 self.sender.send(message)
