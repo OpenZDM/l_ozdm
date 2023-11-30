@@ -146,10 +146,12 @@ class AvroStomper(MessagingHandler):
         self.sender = None
         self.connected = False
         self.container = None
+        self.topic = None  # Added to manage the topic
 
     def connect(self, topic=None):
         if not self.connected:
             try:
+                self.topic = topic  # Set the topic when connect is called
                 self.container = Container(self)
                 self.container.run()
             except Exception as e:
@@ -165,7 +167,8 @@ class AvroStomper(MessagingHandler):
                 allowed_mechs="PLAIN",
                 reconnect=True
             )
-            self.sender = event.container.create_sender(conn, topic)
+            if self.topic:  # Check if the topic is set before creating sender
+                self.sender = event.container.create_sender(conn, self.topic)
             self.connected = True
             self.logger.info(f"Connected to AMQP server at {self.url}")
         except Exception as e:
