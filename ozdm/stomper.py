@@ -16,55 +16,55 @@ class MessageListener(abc.ABC):
     def on_message(self, subject: avroer.AvroObject) -> None:
         pass
 
-class ReconnectListener(MessagingHandler):
-    def __init__(self, container, host, port, user, password, logger, connection_callback):
-        super().__init__()
-        self.container = container
-        self.host = host
-        self.port = port
-        self.user = user
-        self.password = password
-        self.logger = logger or logging.root
-        self.connection = None
-        self.connection_callback = connection_callback
-
-    def on_error(self, event):
-        self.logger.error('Received an error: %s' % event.message.body)
-
-    def on_message(self, event):
-        self.logger.info('Received a message: %s' % event.message.body)
-
-    def connect(self):
-        if not self.connection:
-            try:
-                self.logger.info("Attempting to connect...")
-                conn_url = f"amqp://{self.user}:{self.password}@{self.host}:{self.port}"
-                self.connection = self.container.connect(conn_url, reconnect=[10, 10, 10])  # Example intervals
-                self.container.create_sender(self.connection, None)
-                self.logger.info(f"Connecting to {conn_url}")
-            except Exception as e:
-                self.logger.error(f"Error in connection: {e}", exc_info=True)
-                self.connection = None
-
-    def on_start(self, event):
-        if self.user and self.password:
-            event.container.sasl_enabled = True
-            event.container.allowed_mechs = "PLAIN"
-        self.connect()
-
-    def on_connection_opened(self, event):
-        self.logger.info("Connection opened")
-        if self.connection_callback:
-            self.connection_callback(event.connection)
-        # Create a sender when the connection is opened
-        try:
-            self.sender = event.container.create_sender(event.connection, None)  # Update target as needed
-        except Exception as e:
-            self.logger.error(f"Error creating sender: {e}", exc_info=True)
-
-    def on_disconnected(self, event):
-        self.logger.info("Disconnected")
-        self.connection_callback(None)
+# class ReconnectListener(MessagingHandler):
+#     def __init__(self, container, host, port, user, password, logger, connection_callback):
+#         super().__init__()
+#         self.container = container
+#         self.host = host
+#         self.port = port
+#         self.user = user
+#         self.password = password
+#         self.logger = logger or logging.root
+#         self.connection = None
+#         self.connection_callback = connection_callback
+#
+#     def on_error(self, event):
+#         self.logger.error('Received an error: %s' % event.message.body)
+#
+#     def on_message(self, event):
+#         self.logger.info('Received a message: %s' % event.message.body)
+#
+#     def connect(self):
+#         if not self.connection:
+#             try:
+#                 self.logger.info("Attempting to connect...")
+#                 conn_url = f"amqp://{self.user}:{self.password}@{self.host}:{self.port}"
+#                 self.connection = self.container.connect(conn_url, reconnect=[10, 10, 10])  # Example intervals
+#                 self.container.create_sender(self.connection, None)
+#                 self.logger.info(f"Connecting to {conn_url}")
+#             except Exception as e:
+#                 self.logger.error(f"Error in connection: {e}", exc_info=True)
+#                 self.connection = None
+#
+#     def on_start(self, event):
+#         if self.user and self.password:
+#             event.container.sasl_enabled = True
+#             event.container.allowed_mechs = "PLAIN"
+#         self.connect()
+#
+#     def on_connection_opened(self, event):
+#         self.logger.info("Connection opened")
+#         if self.connection_callback:
+#             self.connection_callback(event.connection)
+#         # Create a sender when the connection is opened
+#         try:
+#             self.sender = event.container.create_sender(event.connection, None)  # Update target as needed
+#         except Exception as e:
+#             self.logger.error(f"Error creating sender: {e}", exc_info=True)
+#
+#     def on_disconnected(self, event):
+#         self.logger.info("Disconnected")
+#         self.connection_callback(None)
 
 class TopicValue:
     def __init__(self, topic: str, listen_schema_name: str, schema: avro.schema.Schema, observer: MessageListener):
@@ -142,64 +142,56 @@ class AvroStomper:
         self.password = password
         self.logger = logger or logging.getLogger(__name__)
         self.container = Container()
-        self.reconnect_listener = ReconnectListener(
-            container=self.container,
-            host=self.host,
-            port=self.port,
-            user=self.user,
-            password=self.password,
-            logger=self.logger,
-            connection_callback=self.update_connection
-        )
         self.connection = None
         self.sender = None
-        self.topic_listener = TopicListener(logger=self.logger)
         self.is_connected = False
 
-    def update_connection(self, connection):
-        self.connection = connection
-        self.is_connected = connection is not None
-        if connection:
-            self.logger.info("Connection established.")
-            # The sender will be created in ReconnectListener when the connection is opened
-        else:
-            self.logger.warning("Connection lost.")
-            self.sender = None
-
-    def connect(self):
+    def connect(self, topic):
         if not self.is_connected:
-            self.logger.info("Initializing AvroStomper connection...")
-            self.reconnect_listener.connect()
-            self.update_connection(self.reconnect_listener.connection)
-            self.logger.info("AvroStomper connected successfully.")
-
-    def disconnect(self):
-        self.container.stop()
+            try:
+                self.logger.info("Initializing AvroStomper connection...")
+                conn_url = f"amqp://{self.user}:{self.password}@{self.host}:{self.port}"
+                self.connection = self.container.connect(conn_url)
+                self.is_connected = True
+                self.logger.info("AvroStomper connected successfully.")
+                self.sender = self.container.create_sender(self.connection, topic)
+            except Exception as e:
+                self.logger.error(f"Error in connection: {e}", exc_info=True)
+                self.connection = None
+                self.is_connected = False
+                self.sender = None
 
     def send(self, topic, avro_object):
-        self.logger.debug(f"Send method called for topic: {topic}")
-        if not self.is_connected:
-            self.logger.error("Connection not established. Attempting to connect...")
-            self.connect()
+        if not self.is_connected or self.sender is None:
+            self.logger.error("Connection not established. Attempting to reconnect...")
+            self.connect(topic)
             if not self.is_connected:
                 self.logger.error("Failed to establish connection. Cannot send message.")
                 return
 
         try:
-            self.logger.debug("Serializing Avro object")
             serializer = AvroSerializer(schema=avro_object.schema)
             content = serializer(content=avro_object.data)
             message = Message()
             message.subject = topic
             message.body = content
 
-            self.logger.debug("Attempting to send message")
-            if not self.sender:
-                self.sender = self.container.create_sender(self.connection, topic)
-            self.sender.send(message)
-            self.logger.info(f"Message sent to {topic}")
+            if self.sender:
+                self.sender.send(message)
+                self.logger.info(f"Message sent to {topic}")
+            else:
+                self.logger.error("Sender is not available.")
         except Exception as e:
             self.logger.error(f"Error while sending message: {e}", exc_info=True)
+
+    def disconnect(self):
+        if self.sender:
+            self.sender.close()
+        if self.connection:
+            self.connection.close()
+        self.container.stop()
+        self.is_connected = False
+        self.sender = None
 
     def subscribe(self, observer: MessageListener, topic: str, schema: avro.schema.Schema = None,
                   listen_schema_name: str = None):
