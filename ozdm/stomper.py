@@ -146,7 +146,7 @@ class AvroStomper(MessagingHandler):
         self.connected = False
         self.sender = None
 
-    def on_start(self, event):
+    def connect(self, event):
         self.logger.info("Starting AvroStomper...")
         try:
             conn = event.container.connect(
