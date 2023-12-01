@@ -142,43 +142,24 @@ class AvroStomper(MessagingHandler):
         self.user = user
         self.password = password
         self.logger = logger or logging.getLogger(__name__)
-        self.url = f"amqp://{user}:{password}@{host}:{port}"
+        self.connection = None
         self.sender = None
         self.connected = False
-        self.container = None
         self.topic = None
 
-    def connect(self, topic=None):
+    def connect(self, topic):
         if not self.connected:
             self.topic = topic
-            try:
-                self.container = Container(self)
-                self.container.run()
-            except Exception as e:
-                self.logger.error(f"Connection error: {e}")
-                self.connected = False
-
-    def on_start(self, event):
-        self.logger.info("Starting AvroStomper...")
-        try:
-            conn = event.container.connect(
-                url=self.url,
-                sasl_enabled=True,
-                allowed_mechs="PLAIN",
-                reconnect=True
-            )
-            if self.topic:
-                self.sender = event.container.create_sender(conn, self.topic)
+            self.connection = proton.Connection(proton.Url(self.user, self.password, self.host, self.port))
+            self.connection.open()
+            self.sender = self.connection.session().sender(topic)
             self.connected = True
-            self.logger.info(f"Connected to AMQP server at {self.url}")
-        except Exception as e:
-            self.logger.error(f"Connection error: {e}")
-            self.connected = False
+            self.logger.info(f"Connected to AMQP server at {self.host}:{self.port}")
 
     def send(self, topic, avro_object):
         if not self.connected or self.sender is None:
             self.logger.error("Not connected or sender not initialized. Attempting to connect...")
-            self.start_container(topic)
+            self.connect(topic)
 
         if self.connected:
             try:
@@ -191,18 +172,14 @@ class AvroStomper(MessagingHandler):
             except Exception as e:
                 self.logger.error(f"Error sending message: {e}")
 
-    def start_container(self, topic):
-        self.container = Container(self)
-        self.sender = self.container.create_sender(self.container.connect(self.url), topic)
-        self.container.run()
-
     def disconnect(self):
         if self.sender:
             self.sender.close()
-        if self.container:
-            self.container.stop()
+        if self.connection:
+            self.connection.close()
         self.connected = False
         self.logger.info("AvroStomper disconnected.")
+
 
     # def subscribe(self, observer: MessageListener, topic: str, schema: avro.schema.Schema = None,
     #               listen_schema_name: str = None):
