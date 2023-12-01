@@ -145,18 +145,7 @@ class AvroStomper(MessagingHandler):
         self.url = f"amqp://{user}:{password}@{host}:{port}"
         self.sender = None
         self.connected = False
-        self.container = None
         self.topic = None
-
-    def connect(self, topic=None):
-        if not self.connected:
-            self.topic = topic
-            try:
-                self.container = Container(self)
-                self.container.run()
-            except Exception as e:
-                self.logger.error(f"Connection error: {e}")
-                self.connected = False
 
     def on_start(self, event):
         self.logger.info("Starting AvroStomper...")
@@ -175,26 +164,32 @@ class AvroStomper(MessagingHandler):
             self.logger.error(f"Connection error: {e}")
             self.connected = False
 
+    def on_sendable(self, event):
+        if self.connected and self.sender:
+            self.logger.info("Sender is ready to send messages.")
+        else:
+            self.logger.error("Sender is not ready.")
+
+    def connect(self, topic=None):
+        self.topic = topic
+        if not self.connected:
+            self.container = Container(self)
+            self.container.run()
+
     def send(self, topic, avro_object):
         if not self.connected or self.sender is None:
             self.logger.error("Not connected or sender not initialized. Attempting to connect...")
-            self.start_container(topic)
+            self.connect(topic)
+            return
 
-        if self.connected:
-            try:
-                serializer = AvroSerializer(schema=avro_object.schema)
-                content = serializer(content=avro_object.data)
-                message = Message(subject=topic, body=content)
-                self.logger.info(f"Sending message to {topic}: {content}")
-                self.sender.send(message)
-                self.logger.info(f"Message sent to {topic}")
-            except Exception as e:
-                self.logger.error(f"Error sending message: {e}")
-
-    def start_container(self, topic):
-        self.container = Container(self)
-        self.sender = self.container.create_sender(self.container.connect(self.url), topic)
-        self.container.run()
+        try:
+            serializer = AvroSerializer(schema=avro_object.schema)
+            content = serializer(content=avro_object.data)
+            message = Message(subject=topic, body=content)
+            self.sender.send(message)
+            self.logger.info(f"Message sent to {topic}")
+        except Exception as e:
+            self.logger.error(f"Error sending message: {e}")
 
     def disconnect(self):
         if self.sender:
