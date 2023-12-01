@@ -142,19 +142,38 @@ class AvroStomper(MessagingHandler):
         self.user = user
         self.password = password
         self.logger = logger or logging.getLogger(__name__)
-        self.connection = None
+        self.url = f"amqp://{user}:{password}@{host}:{port}"
         self.sender = None
         self.connected = False
+        self.container = None
         self.topic = None
 
-    def connect(self, topic):
+    def connect(self, topic=None):
         if not self.connected:
             self.topic = topic
-            self.connection = proton.Connection(proton.Url(self.user, self.password, self.host, self.port))
-            self.connection.open()
-            self.sender = self.connection.session().sender(topic)
+            try:
+                self.container = Container(self)
+                self.container.run()
+            except Exception as e:
+                self.logger.error(f"Connection error: {e}")
+                self.connected = False
+
+    def on_start(self, event):
+        self.logger.info("Starting AvroStomper...")
+        try:
+            conn = event.container.connect(
+                url=self.url,
+                sasl_enabled=True,
+                allowed_mechs="PLAIN",
+                reconnect=True
+            )
+            if self.topic:
+                self.sender = event.container.create_sender(conn, self.topic)
             self.connected = True
-            self.logger.info(f"Connected to AMQP server at {self.host}:{self.port}")
+            self.logger.info(f"Connected to AMQP server at {self.url}")
+        except Exception as e:
+            self.logger.error(f"Connection error: {e}")
+            self.connected = False
 
     def send(self, topic, avro_object):
         if not self.connected or self.sender is None:
@@ -162,6 +181,11 @@ class AvroStomper(MessagingHandler):
             self.connect(topic)
 
         if self.connected:
+            if self.sender is None or self.topic != topic:
+                self.sender = self.container.create_sender(self.connection, topic)
+                self.topic = topic
+                self.logger.info(f"Sender switched to topic: {topic}")
+
             try:
                 serializer = AvroSerializer(schema=avro_object.schema)
                 content = serializer(content=avro_object.data)
@@ -175,8 +199,8 @@ class AvroStomper(MessagingHandler):
     def disconnect(self):
         if self.sender:
             self.sender.close()
-        if self.connection:
-            self.connection.close()
+        if self.container:
+            self.container.stop()
         self.connected = False
         self.logger.info("AvroStomper disconnected.")
 
@@ -250,3 +274,42 @@ class AvroStomper(MessagingHandler):
 #
 # if __name__ == "__main__":
 #     main()
+
+
+def create_large_message(size_kb=100):
+    """
+    Create a large message of specified size in KB.
+    """
+    message_size = size_kb * 1024  # Convert KB to bytes
+    message_content = "x" * message_size  # Create a string with repeated characters
+    return message_content
+
+def main():
+    logging.basicConfig(level=logging.INFO)
+    logger = logging.getLogger(__name__)
+
+    # Connection details (update these with your actual connection details)
+    host = "artemis"
+    port = 61616
+    user = "artemis"
+    password = "artemis"
+    topic = "test_topic"
+
+    # Create an instance of AvroStomper
+    stomper = AvroStomper(host, port, user, password, logger)
+
+    # Connect to the server
+    stomper.connect(topic)
+
+    # Send messages
+    for _ in range(10000):
+        large_message = create_large_message()
+        message = Message(body=large_message)
+        stomper.send(topic, message)
+        logger.info(f"Sent message of size {len(large_message)} bytes")
+
+    # Disconnect after sending messages
+    stomper.disconnect()
+
+if __name__ == "__main__":
+    main()
