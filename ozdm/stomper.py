@@ -134,77 +134,75 @@ class TopicListener(MessagingHandler):
                                              schema=schema,
                                              observer=observer))
 
-class AvroStomper:
+class AvroStomper(MessagingHandler):
     def __init__(self, host, port, user, password, logger=None):
+        super(AvroStomper, self).__init__()
         self.host = host
         self.port = port
         self.user = user
         self.password = password
         self.logger = logger or logging.getLogger(__name__)
-        self.container = Container()
-        self.connection = None
+        self.url = f"amqp://{user}:{password}@{host}:{port}"
         self.sender = None
-        self.is_connected = False
+        self.connected = False
+        self.container = None
         self.topic = None
 
     def connect(self, topic=None):
-        if not self.is_connected:
+        if not self.connected:
+            self.topic = topic
             try:
-                self.logger.info("Initializing AvroStomper connection...")
-                conn_url = f"amqp://{self.user}:{self.password}@{self.host}:{self.port}"
-                self.connection = self.container.connect(conn_url)
-                self.is_connected = True
-                self.logger.info(f"Connected to AMQP server at {conn_url}")
-
-                if topic:
-                    self.topic = topic
-                    self.sender = self.container.create_sender(self.connection, topic)
-                    self.logger.info(f"Sender prepared for topic: {topic}")
+                self.container = Container(self)
+                self.container.run()
             except Exception as e:
-                self.logger.error(f"Error in connection: {e}", exc_info=True)
-                self.is_connected = False
-                self.sender = None
+                self.logger.error(f"Connection error: {e}")
+                self.connected = False
+
+    def on_start(self, event):
+        self.logger.info("Starting AvroStomper...")
+        try:
+            conn = event.container.connect(
+                url=self.url,
+                sasl_enabled=True,
+                allowed_mechs="PLAIN",
+                reconnect=True
+            )
+            if self.topic:
+                self.sender = event.container.create_sender(conn, self.topic)
+            self.connected = True
+            self.logger.info(f"Connected to AMQP server at {self.url}")
+        except Exception as e:
+            self.logger.error(f"Connection error: {e}")
+            self.connected = False
 
     def send(self, topic, avro_object):
-        if not self.is_connected or (self.sender is None and not self.topic):
-            self.logger.error("Connection not established or topic not set. Attempting to reconnect...")
-            self.connect(topic)
+        if not self.connected or self.sender is None:
+            self.logger.error("Not connected or sender not initialized. Attempting to connect...")
+            self.start_container(topic)
 
-        if self.is_connected:
-            if self.sender is None or self.topic != topic:
-                self.sender = self.container.create_sender(self.connection, topic)
-                self.topic = topic
-                self.logger.info(f"Sender switched to topic: {topic}")
-
+        if self.connected:
             try:
                 serializer = AvroSerializer(schema=avro_object.schema)
                 content = serializer(content=avro_object.data)
-                message = Message()
-                message.subject = topic
-                message.body = content
-                self.logger.info(f"Preparing to send message to {topic}: {content}")
-                if self.sender:
-                    self.sender.send(message)
-                    self.logger.info(f"Message sent to {topic}")
-                    self.logger.info(f"Message successfully sent to {topic}: {content}")
-                else:
-                    self.logger.error("Sender is not available.")
+                message = Message(subject=topic, body=content)
+                self.logger.info(f"Sending message to {topic}: {content}")
+                self.sender.send(message)
+                self.logger.info(f"Message sent to {topic}")
             except Exception as e:
-                self.logger.error(f"Error while sending message: {e}", exc_info=True)
-        else:
-            self.logger.error("Failed to send message as connection is not established.")
+                self.logger.error(f"Error sending message: {e}")
 
+    def start_container(self, topic):
+        self.container = Container(self)
+        self.sender = self.container.create_sender(self.container.connect(self.url), topic)
+        self.container.run()
 
     def disconnect(self):
         if self.sender:
             self.sender.close()
-        if self.connection:
-            self.connection.close()
-        self.container.stop()
-        self.is_connected = False
-        self.sender = None
-        self.current_topic = None
-        self.logger.info("Disconnected from AMQP server.")
+        if self.container:
+            self.container.stop()
+        self.connected = False
+        self.logger.info("AvroStomper disconnected.")
 
     # def subscribe(self, observer: MessageListener, topic: str, schema: avro.schema.Schema = None,
     #               listen_schema_name: str = None):
