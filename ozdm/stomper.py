@@ -149,6 +149,7 @@ class AvroStomper(MessagingHandler):
         self.topic = None
 
     def connect(self, topic=None):
+        # Ensure the topic is updated whenever connect is called
         self.topic = topic
         if not self.connected:
             self.container = Container(self)
@@ -165,32 +166,38 @@ class AvroStomper(MessagingHandler):
             )
             self.connected = True
             self.logger.info(f"Connected to AMQP server at {self.url}")
-            # Prepare sender for the specified topic
-            self.sender = event.container.create_sender(conn, self.topic)
-            self.logger.info(f"Sender prepared for topic: {self.topic}")
+            # Prepare sender for the topic if it's already set
+            if self.topic:
+                self.sender = event.container.create_sender(conn, self.topic)
+                self.logger.info(f"Sender prepared for topic: {self.topic}")
+            else:
+                self.logger.warning("Topic not set in on_start.")
         except Exception as e:
             self.logger.error(f"Connection error: {e}")
             self.connected = False
 
     def send(self, topic, avro_object):
-        # If the topic has changed, update the sender
-        if self.topic != topic:
-            self.logger.info(f"Switching to new topic: {topic}")
-            self.topic = topic
-            if self.connected:
-                self.sender = self.container.create_sender(self.container.get_connection(), self.topic)
+        if not self.connected:
+            self.logger.error("Not connected to server. Attempting to reconnect...")
+            self.connect(topic)
 
-        if self.connected and self.sender:
+        if self.connected:
+            # Check if topic has changed or sender is not initialized
+            if self.topic != topic or not self.sender:
+                self.topic = topic
+                self.sender = self.container.create_sender(self.container.get_connection(), self.topic)
+                self.logger.info(f"Sender switched to topic: {self.topic}")
+
             try:
                 serializer = AvroSerializer(schema=avro_object.schema)
                 content = serializer(content=avro_object.data)
-                message = Message(subject=topic, body=content)
+                message = Message(subject=self.topic, body=content)
                 self.sender.send(message)
-                self.logger.info(f"Message sent to {topic}")
+                self.logger.info(f"Message sent to {self.topic}")
             except Exception as e:
                 self.logger.error(f"Error sending message: {e}")
         else:
-            self.logger.error("Unable to send message - connection or sender not established.")
+            self.logger.error("Unable to send message - connection not established.")
 
     def disconnect(self):
         if self.sender:
@@ -199,6 +206,8 @@ class AvroStomper(MessagingHandler):
             self.container.stop()
         self.connected = False
         self.logger.info("AvroStomper disconnected.")
+
+
 
 
 
