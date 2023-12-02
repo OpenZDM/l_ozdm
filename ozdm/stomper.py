@@ -149,7 +149,6 @@ class AvroStomper(MessagingHandler):
         self.topic = None
 
     def connect(self, topic=None):
-        # Ensure the topic is updated whenever connect is called
         self.topic = topic
         if not self.connected:
             self.container = Container(self)
@@ -166,7 +165,6 @@ class AvroStomper(MessagingHandler):
             )
             self.connected = True
             self.logger.info(f"Connected to AMQP server at {self.url}")
-            # Prepare sender for the topic if it's already set
             if self.topic:
                 self.sender = event.container.create_sender(conn, self.topic)
                 self.logger.info(f"Sender prepared for topic: {self.topic}")
@@ -177,12 +175,12 @@ class AvroStomper(MessagingHandler):
             self.connected = False
 
     def send(self, topic, avro_object):
+        self.logger.info(f"Attempting to send a message to {topic}")
         if not self.connected:
             self.logger.error("Not connected to server. Attempting to reconnect...")
             self.connect(topic)
 
         if self.connected:
-            # Check if topic has changed or sender is not initialized
             if self.topic != topic or not self.sender:
                 self.topic = topic
                 self.sender = self.container.create_sender(self.container.get_connection(), self.topic)
@@ -206,6 +204,8 @@ class AvroStomper(MessagingHandler):
             self.container.stop()
         self.connected = False
         self.logger.info("AvroStomper disconnected.")
+
+
 
 
 
