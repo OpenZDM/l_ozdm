@@ -151,12 +151,8 @@ class AvroStomper(MessagingHandler):
     def connect(self, topic=None):
         if not self.connected:
             self.topic = topic
-            try:
-                self.container = Container(self)
-                self.container.run()
-            except Exception as e:
-                self.logger.error(f"Connection error: {e}")
-                self.connected = False
+            self.container = Container(self)
+            self.container.run()
 
     def on_start(self, event):
         self.logger.info("Starting AvroStomper...")
@@ -165,7 +161,7 @@ class AvroStomper(MessagingHandler):
                 url=self.url,
                 sasl_enabled=True,
                 allowed_mechs="PLAIN",
-                reconnect=True
+                reconnect=[10,10,10]
             )
             if self.topic:
                 self.sender = event.container.create_sender(conn, self.topic)
@@ -190,7 +186,6 @@ class AvroStomper(MessagingHandler):
                 serializer = AvroSerializer(schema=avro_object.schema)
                 content = serializer(content=avro_object.data)
                 message = Message(subject=topic, body=content)
-                self.logger.info(f"Sending message to {topic}: {content}")
                 self.sender.send(message)
                 self.logger.info(f"Message sent to {topic}")
             except Exception as e:
@@ -276,36 +271,36 @@ class AvroStomper(MessagingHandler):
 #     main()
 
 
-def create_large_message(size_kb=100):
-    """
-    Create a large message of specified size in KB.
-    """
-    message_size = size_kb * 1024  # Convert KB to bytes
-    message_content = "x" * message_size  # Create a string with repeated characters
-    return message_content
-
-def main():
-    logging.basicConfig(level=logging.INFO)
-    logger = logging.getLogger(__name__)
-
-    host = "localhost"
-    port = 61616
-    user = "artemis"
-    password = "artemis"
-    topic = "test_topic"
-
-    stomper = AvroStomper(host, port, user, password, logger)
-
-    stomper.connect(topic)
-
-    # Send messages
-    for _ in range(10000):
-        large_message = create_large_message()
-        message = Message(body=large_message)
-        stomper.send(topic, message)
-        logger.info(f"Sent message of size {len(large_message)} bytes")
-
-    stomper.disconnect()
-
-if __name__ == "__main__":
-    main()
+# def create_large_message(size_kb=100):
+#     """
+#     Create a large message of specified size in KB.
+#     """
+#     message_size = size_kb * 1024  # Convert KB to bytes
+#     message_content = "x" * message_size  # Create a string with repeated characters
+#     return message_content
+#
+# def main():
+#     logging.basicConfig(level=logging.INFO)
+#     logger = logging.getLogger(__name__)
+#
+#     host = "localhost"
+#     port = 61616
+#     user = "artemis"
+#     password = "artemis"
+#     topic = "test_topic"
+#
+#     stomper = AvroStomper(host, port, user, password, logger)
+#
+#     stomper.connect(topic)
+#
+#     # Send messages
+#     for _ in range(10000):
+#         large_message = create_large_message()
+#         message = Message(body=large_message)
+#         stomper.send(topic, message)
+#         logger.info(f"Sent message of size {len(large_message)} bytes")
+#
+#     stomper.disconnect()
+#
+# if __name__ == "__main__":
+#     main()
