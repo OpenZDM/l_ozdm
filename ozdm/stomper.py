@@ -148,7 +148,7 @@ class AvroStomper(MessagingHandler):
         self.container = None
         self.topic = None
 
-    def connect(self, topic):
+    def connect(self, topic=None):
         self.topic = topic
         if not self.connected:
             self.container = Container(self)
