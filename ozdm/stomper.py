@@ -288,17 +288,14 @@ def main():
     logging.basicConfig(level=logging.INFO)
     logger = logging.getLogger(__name__)
 
-    # Connection details (update these with your actual connection details)
-    host = "artemis"
+    host = "localhost"
     port = 61616
     user = "artemis"
     password = "artemis"
     topic = "test_topic"
 
-    # Create an instance of AvroStomper
     stomper = AvroStomper(host, port, user, password, logger)
 
-    # Connect to the server
     stomper.connect(topic)
 
     # Send messages
@@ -308,7 +305,6 @@ def main():
         stomper.send(topic, message)
         logger.info(f"Sent message of size {len(large_message)} bytes")
 
-    # Disconnect after sending messages
     stomper.disconnect()
 
 if __name__ == "__main__":
