@@ -8,7 +8,6 @@ from proton.handlers import MessagingHandler
 from proton.reactor import Container
 from ozdm import avroer
 from ozdm.avroer import AvroSerializer, AvroDeserializer
-import time
 
 class MessageListener(abc.ABC):
     @abc.abstractmethod
@@ -96,39 +95,29 @@ class AvroStomper(MessagingHandler):
         self.sender = None
         self.topic = None
         self.is_connected = False
-        self.connection_event = threading.Event()
-
-    def on_start(self, event):
-        self.connect()
 
     def connect(self, topic=None):
-        self.topic = topic
         if not self.is_connected:
+            self.topic = topic
             self.container = Container(self)
-            thread = threading.Thread(target=self.run_container)
-            thread.daemon = True
-            thread.start()
-
-    def run_container(self):
-        try:
-            self.connection = self.container.connect(f"amqp://{self.user}:{self.password}@{self.host}:{self.port}")
-            self.container.run()
-        except Exception as e:
-            self.logger.error(f"Error in connection: {e}", exc_info=True)
+            self.thread = threading.Thread(target=self.container.run)
+            self.thread.daemon = True  # Set as a daemon thread
+            self.thread.start()
+            self.logger.info("Container thread started")
 
     def on_connection_opened(self, event):
         self.logger.info("Connection opened")
         self.is_connected = True
-        self.connection_event.set()
+        self.connection = event.connection  # Update the connection object
 
     def on_disconnected(self, event):
         self.logger.info("Disconnected")
         self.is_connected = False
-        self.connection_event.clear()
+        self.connection = None
 
     def send(self, avro_object, topic=None):
-        if not self.connection_event.wait(timeout=10):
-            self.logger.error("Timed out waiting for connection to be established.")
+        if not self.is_connected:
+            self.logger.error("Connection not established. Cannot send message.")
             return
 
         try:
