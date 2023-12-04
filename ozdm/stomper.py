@@ -126,10 +126,10 @@ class AvroStomper(MessagingHandler):
         self.logger.info("Disconnected")
         self.is_connected = False
 
-    def send(self, avro_object):
+    def send(self, avro_object, topic=None):
         if not self.is_connected:
             self.logger.error("Connection not established. Attempting to reconnect...")
-            self.connect(topic=self.topic)
+            self.connect(topic=topic)
             if not self.is_connected:
                 self.logger.error("Failed to establish connection. Cannot send message.")
                 return
@@ -137,11 +137,11 @@ class AvroStomper(MessagingHandler):
             serialize = AvroSerializer(schema=avro_object.schema)
             content = serialize(content=avro_object.data)
             message = Message()
-            message.subject = self.topic
+            message.subject = topic if topic else self.topic
             message.body = content
-            if not self.sender:
-                self.sender = self.connection.create_sender(self.topic)
+            if not self.sender or self.sender.target != topic:
+                self.sender = self.connection.create_sender(topic)
             self.sender.send(message)
-            self.logger.info(f"Message sent to {self.topic}")
+            self.logger.info(f"Message sent to {topic if topic else self.topic}")
         except Exception as e:
             self.logger.error(f"Error while sending message: {e}", exc_info=True)
