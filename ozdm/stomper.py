@@ -8,6 +8,7 @@ from proton.handlers import MessagingHandler
 from proton.reactor import Container
 from ozdm import avroer
 from ozdm.avroer import AvroSerializer, AvroDeserializer
+import time
 
 class MessageListener(abc.ABC):
     @abc.abstractmethod
@@ -95,6 +96,7 @@ class AvroStomper(MessagingHandler):
         self.sender = None
         self.topic = None
         self.is_connected = False
+        self.connection_event = threading.Event()
 
     def on_start(self, event):
         self.connect()
@@ -106,33 +108,29 @@ class AvroStomper(MessagingHandler):
             thread = threading.Thread(target=self.run_container)
             thread.daemon = True
             thread.start()
-            self.logger.info(f"Attempting to connect to {self.host}:{self.port}")
 
     def run_container(self):
         try:
-            conn_url = f"amqp://{self.user}:{self.password}@{self.host}:{self.port}"
-            self.connection = self.container.connect(conn_url)
-            self.is_connected = True
+            self.connection = self.container.connect(f"amqp://{self.user}:{self.password}@{self.host}:{self.port}")
             self.container.run()
         except Exception as e:
             self.logger.error(f"Error in connection: {e}", exc_info=True)
-            self.is_connected = False
 
     def on_connection_opened(self, event):
         self.logger.info("Connection opened")
         self.is_connected = True
+        self.connection_event.set()
 
     def on_disconnected(self, event):
         self.logger.info("Disconnected")
         self.is_connected = False
+        self.connection_event.clear()
 
     def send(self, avro_object, topic=None):
-        if not self.is_connected:
-            self.logger.error("Connection not established. Attempting to reconnect...")
-            self.connect(topic=topic)
-            if not self.is_connected:
-                self.logger.error("Failed to establish connection. Cannot send message.")
-                return
+        if not self.connection_event.wait(timeout=10):
+            self.logger.error("Timed out waiting for connection to be established.")
+            return
+
         try:
             serialize = AvroSerializer(schema=avro_object.schema)
             content = serialize(content=avro_object.data)
