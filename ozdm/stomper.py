@@ -1,6 +1,7 @@
 import abc
 import logging
 import threading
+import time
 from proton import Message
 from proton.handlers import MessagingHandler
 from proton.reactor import Container
@@ -35,19 +36,41 @@ class TopicValue:
         return isinstance(other, TopicValue) and self.topic == other.topic and self.listen_schema_name == other.listen_schema_name
 
 class ProtonHandler(MessagingHandler):
-    def __init__(self, server_url, user, password, logger=None):
+    def __init__(self, server_url, user, password, auto_reconnect, logger=None):
         super(ProtonHandler, self).__init__()
         self.server_url = server_url
         self.user = user
         self.password = password
+        self.auto_reconnect = auto_reconnect
         self.logger = logger or logging.root
         self.connection = None
         self.sender = None
         self.topic_listeners = {}
+        self.reconnect_attempts = 0
+        self.max_reconnect_attempts = 5
 
     def on_start(self, event):
-        self.connection = event.container.connect(self.server_url, user=self.user, password=self.password)
-        self.sender = event.container.create_sender(self.connection, None)
+        self.connect(event.container)
+
+    def connect(self, container):
+        try:
+            self.connection = container.connect(self.server_url, user=self.user, password=self.password)
+            self.sender = container.create_sender(self.connection, None)
+            self.reconnect_attempts = 0
+        except Exception as e:
+            self.logger.error(f"Connection failed: {e}")
+            if self.auto_reconnect and self.reconnect_attempts < self.max_reconnect_attempts:
+                self.reconnect_attempts += 1
+                time.sleep(5)  # Wait for 5 seconds before trying to reconnect
+                self.connect(container)
+
+    def on_disconnected(self, event):
+        if self.auto_reconnect and self.reconnect_attempts < self.max_reconnect_attempts:
+            self.logger.info("Attempting to reconnect...")
+            self.reconnect_attempts += 1
+            self.connect(event.container)
+        else:
+            self.logger.error("Maximum reconnect attempts reached. Giving up.")
 
     def send_message(self, topic, avro_object):
         if not self.sender:
@@ -82,10 +105,9 @@ class ProtonHandler(MessagingHandler):
         self.topic_listeners[topic_key].append(TopicValue(topic, listen_schema_name, schema, observer))
 
 class AvroStomper:
-    def __init__(self, host, port, user=None, password=None, logger=None):
-        server_url = f'amqp://{user}:{password}@{host}:{port}'
+    def __init__(self, host, port, user=None, password=None, auto_reconnect=False, logger=None):
         self.logger = logger or logging.root
-        self.handler = ProtonHandler(server_url, user, password, self.logger)
+        self.handler = ProtonHandler(f'amqp://{user}:{password}@{host}:{port}', user, password, auto_reconnect, self.logger)
         self.container = Container(self.handler)
         self.thread = threading.Thread(target=self.container.run)
         self.thread.start()
@@ -95,8 +117,10 @@ class AvroStomper:
             self.thread.start()
 
     def disconnect(self):
-        self.container.stop()
-        self.thread.join()
+        if self.container and self.container.running:
+            self.container.stop()
+        if self.thread.is_alive():
+            self.thread.join()
 
     def send(self, topic: str, avro_object: avroer.AvroObject) -> None:
         self.handler.send_message(topic, avro_object)
