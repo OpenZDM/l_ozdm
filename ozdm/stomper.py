@@ -1,5 +1,6 @@
 import abc
 import logging
+import threading
 from typing import Dict, List
 import avro.schema
 from proton._message import Message
@@ -59,7 +60,7 @@ class TopicListener(MessagingHandler):
             observers.extend(self._observers[k])
 
         k = TopicKey(topic=topic, listen_schema_name=None)
-        if k in our._observers:
+        if k in self._observers:
             observers.extend(self._observers[k])
 
         payload = message.body
@@ -102,15 +103,20 @@ class AvroStomper(MessagingHandler):
         self.topic = topic
         if not self.is_connected:
             self.container = Container(self)
-            try:
-                conn_url = f"amqp://{self.user}:{self.password}@{self.host}:{self.port}"
-                self.connection = self.container.connect(conn_url)
-                self.is_connected = True
-                self.container.run()
-                self.logger.info(f"Connected to {conn_url}")
-            except Exception as e:
-                self.logger.error(f"Error in connection: {e}", exc_info=True)
-                self.is_connected = False
+            thread = threading.Thread(target=self.run_container)
+            thread.daemon = True
+            thread.start()
+            self.logger.info(f"Attempting to connect to {self.host}:{self.port}")
+
+    def run_container(self):
+        try:
+            conn_url = f"amqp://{self.user}:{self.password}@{self.host}:{self.port}"
+            self.connection = self.container.connect(conn_url)
+            self.is_connected = True
+            self.container.run()
+        except Exception as e:
+            self.logger.error(f"Error in connection: {e}", exc_info=True)
+            self.is_connected = False
 
     def on_connection_opened(self, event):
         self.logger.info("Connection opened")
