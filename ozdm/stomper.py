@@ -1,31 +1,17 @@
-import abc
 import logging
 import threading
-from typing import Dict, List
-import avro.schema
-from proton._message import Message
+from proton import Message
 from proton.handlers import MessagingHandler
 from proton.reactor import Container
 from ozdm import avroer
-from ozdm.avroer import AvroSerializer, AvroDeserializer
-import queue
+import avro.schema
+import abc
+from typing import Dict, List
 
 class MessageListener(abc.ABC):
     @abc.abstractmethod
     def on_message(self, subject: avroer.AvroObject) -> None:
         pass
-
-class TopicValue:
-    def __init__(self, topic: str, listen_schema_name: str, schema: avro.schema.Schema, observer: MessageListener):
-        self.topic = topic
-        self.listen_schema_name = listen_schema_name
-        self.schema = schema
-        self.observer = observer
-
-    def __eq__(self, other):
-        if isinstance(other, TopicValue):
-            return self.topic == other.topic and self.listen_schema_name == other.listen_schema_name
-        return False
 
 class TopicKey:
     def __init__(self, topic: str, listen_schema_name: str | None):
@@ -40,108 +26,79 @@ class TopicKey:
     def __hash__(self):
         return hash((self.topic, self.listen_schema_name))
 
-    def __ne__(self, other):
-        return not (self == other)
-
-class TopicListener(MessagingHandler):
-    _observers: Dict[TopicKey, List[TopicValue]] = {}
-
-    def __init__(self, logger=None):
-        super().__init__()
-        self.logger = logger or logging.root
-
-    def on_message(self, event):
-        message = event.message
-        topic = message.subject
-        schema_name = message.properties.get("schema")
-        observers = []
-
-        k = TopicKey(topic=topic, listen_schema_name=schema_name)
-        if k in self._observers:
-            observers.extend(self._observers[k])
-
-        k = TopicKey(topic=topic, listen_schema_name=None)
-        if k in self._observers:
-            observers.extend(self._observers[k])
-
-        payload = message.body
-        deserialize = avroer.AvroDeserializer()
-        inferred_schema, data = deserialize(payload=payload)
-
-        for d in data:
-            avro_object = avroer.AvroObject(schema=inferred_schema, data=d)
-            for observer in observers:
-                observer.on_message(avro_object)
-
-    def subscribe(self, observer: MessageListener, topic: str, schema: avro.schema.Schema,
-                  listen_schema_name: str = None) -> None:
-        k = TopicKey(topic=topic, listen_schema_name=listen_schema_name)
-        if k not in self._observers.keys():
-            self._observers[k] = []
-        self._observers[k].append(TopicValue(topic=topic,
-                                             listen_schema_name=listen_schema_name,
-                                             schema=schema,
-                                             observer=observer))
-
-class AvroStomper(MessagingHandler):
-    def __init__(self, host, port, user, password, logger=None):
-        super().__init__()
-        self.host = host
-        self.port = port
+class ProtonHandler(MessagingHandler):
+    def __init__(self, server_url, user, password, topic_listeners, logger=None):
+        super(ProtonHandler, self).__init__()
+        self.server_url = server_url
         self.user = user
         self.password = password
-        self.logger = logger or logging.getLogger(__name__)
-        self.container = None
+        self.topic_listeners = topic_listeners
+        self.logger = logger or logging.root
         self.connection = None
-        self.sender = None
-        self.topic = None
-        self.is_connected = False
-        self.message_queue = queue.Queue()
+        self.senders = {}
 
-    def connect(self, topic=None):
-        if not self.is_connected:
-            self.topic = topic
-            self.container = Container(self)
-            thread = threading.Thread(target=self.container.run)
-            thread.daemon = True
-            thread.start()
-            self.logger.info("Container thread started")
+    def on_start(self, event):
+        self.connection = event.container.connect(self.server_url, user=self.user, password=self.password)
+        for topic in self.topic_listeners.keys():
+            self.senders[topic] = event.container.create_sender(self.connection, topic)
+            event.container.create_receiver(self.connection, topic)
 
-    def on_connection_opened(self, event):
-        self.logger.info("Connection opened")
-        self.is_connected = True
-        self.connection = event.connection
-        self.process_queued_messages()
+    def send_message(self, topic, avro_object):
+        serialize = avroer.AvroSerializer(schema=avro_object.schema)
+        content = serialize(content=avro_object.data)
+        message = Message(body=content, properties={"schema": avro_object.schema.get_prop("name")})
+        self.senders[topic].send(message)
 
-    def on_disconnected(self, event):
-        self.logger.info("Disconnected")
-        self.is_connected = False
-        self.connection = None
+    def on_message(self, event):
+        topic = event.receiver.source.address
+        if topic in self.topic_listeners:
+            payload = event.message.body
+            deserialize = avroer.AvroDeserializer()
+            inferred_schema, data = deserialize(payload=payload)
+            for d in data:
+                for listener in self.topic_listeners[topic]:
+                    schema = listener.schema or inferred_schema
+                    avro_object = avroer.AvroObject(schema=schema, data=d)
+                    listener.observer.on_message(subject=avro_object)
 
-    def send(self, avro_object, topic=None):
-        if not self.is_connected:
-            self.logger.info("Queueing message as connection is not yet established.")
-            self.message_queue.put((avro_object, topic))
-            return
 
-        self._send_message(avro_object, topic)
+class TopicValue:
+    def __init__(self, topic: str, listen_schema_name: str, schema: avro.schema.Schema, observer: MessageListener):
+        self.topic = topic
+        self.listen_schema_name = listen_schema_name
+        self.schema = schema
+        self.observer = observer
 
-    def _send_message(self, avro_object, topic):
-        try:
-            serialize = AvroSerializer(schema=avro_object.schema)
-            content = serialize(content=avro_object.data)
-            message = Message()
-            message.subject = topic if topic else self.topic
-            message.body = content
-            if not self.sender or self.sender.target != topic:
-                self.sender = self.connection.create_sender(topic)
-            self.sender.send(message)
-            self.logger.info(f"Message sent to {topic if topic else self.topic}")
-        except Exception as e:
-            self.logger.error(f"Error while sending message: {e}", exc_info=True)
+    def __eq__(self, other):
+        if isinstance(other, TopicValue):
+            return self.topic == other.topic and self.listen_schema_name == other.listen_schema_name
+        return False
 
-    def process_queued_messages(self):
-        while not self.message_queue.empty():
-            avro_object, topic = self.message_queue.get()
-            self._send_message(avro_object, topic)
-            self.message_queue.task_done()
+
+class AvroStomper:
+    def __init__(self, host, port, user=None, password=None, auto_reconnect: bool = False, logger=None):
+        self.topic_listeners = {}
+        server_url = f'amqp://{user}:{password}@{host}:{port}'
+        self.logger = logger or logging.root
+        self.handler = ProtonHandler(server_url, user, password, self.topic_listeners, logger=logger)
+        self.container = Container(self.handler)
+        self.thread = threading.Thread(target=self.container.run)
+        self.auto_reconnect = auto_reconnect
+
+    def connect(self):
+        if not self.thread.is_alive():
+            self.thread.start()
+
+    def disconnect(self):
+        self.container.stop()
+        self.thread.join()
+
+    def send(self, topic: str, avro_object: avroer.AvroObject) -> None:
+        self.handler.send_message(topic, avro_object)
+
+    def subscribe(self, observer: MessageListener, topic: str, schema: avro.schema.Schema=None,
+                  listen_schema_name: str = None) -> None:
+        topic_value = TopicValue(topic=topic, listen_schema_name=listen_schema_name, schema=schema, observer=observer)
+        if topic not in self.topic_listeners:
+            self.topic_listeners[topic] = []
+        self.topic_listeners[topic].append(topic_value)
