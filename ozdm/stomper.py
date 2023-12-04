@@ -36,11 +36,12 @@ class TopicValue:
         return isinstance(other, TopicValue) and self.topic == other.topic and self.listen_schema_name == other.listen_schema_name
 
 class ProtonHandler(MessagingHandler):
-    def __init__(self, server_url, user, password, logger=None):
+    def __init__(self, server_url, user, password, auto_reconnect, logger=None):
         super(ProtonHandler, self).__init__()
         self.server_url = server_url
         self.user = user
         self.password = password
+        self.auto_reconnect = auto_reconnect
         self.logger = logger or logging.root
         self.connection = None
         self.sender = None
@@ -49,28 +50,27 @@ class ProtonHandler(MessagingHandler):
         self.max_reconnect_attempts = 5
 
     def on_start(self, event):
-        self.reconnect(event.container)
+        self.connect(event.container)
 
-    def reconnect(self, container):
-        if self.reconnect_attempts < self.max_reconnect_attempts:
-            try:
-                self.connection = container.connect(self.server_url, user=self.user, password=self.password)
-                self.sender = container.create_sender(self.connection, None)
-                self.reconnect_attempts = 0
-                # Resubscribe to topics on reconnect
-                for key in self.topic_listeners.keys():
-                    container.create_receiver(self.connection, key.topic)
-            except Exception as e:
-                self.logger.error(f"Reconnection failed: {e}")
+    def connect(self, container):
+        try:
+            self.connection = container.connect(self.server_url, user=self.user, password=self.password)
+            self.sender = container.create_sender(self.connection, None)
+            self.reconnect_attempts = 0
+        except Exception as e:
+            self.logger.error(f"Connection failed: {e}")
+            if self.auto_reconnect and self.reconnect_attempts < self.max_reconnect_attempts:
                 self.reconnect_attempts += 1
-                time.sleep(5)
-                self.reconnect(container)
-        else:
-            self.logger.error("Maximum reconnect attempts reached. Giving up.")
+                time.sleep(5)  # Wait for 5 seconds before trying to reconnect
+                self.connect(container)
 
     def on_disconnected(self, event):
-        self.logger.info("Disconnected, attempting to reconnect...")
-        self.reconnect(event.container)
+        if self.auto_reconnect and self.reconnect_attempts < self.max_reconnect_attempts:
+            self.logger.info("Attempting to reconnect...")
+            self.reconnect_attempts += 1
+            self.connect(event.container)
+        else:
+            self.logger.error("Maximum reconnect attempts reached. Giving up.")
 
     def send_message(self, topic, avro_object):
         if not self.sender:
@@ -97,16 +97,15 @@ class ProtonHandler(MessagingHandler):
             for observer in observers:
                 observer.observer.on_message(avro_object)
 
-    def subscribe(self, observer: MessageListener, topic: str, schema: avro.schema.Schema=None, listen_schema_name: str = None):
+    def subscribe(self, observer: MessageListener, topic: str, schema: avro.schema.Schema=None,
+                  listen_schema_name: str = None) -> None:
         topic_key = TopicKey(topic, listen_schema_name)
         if topic_key not in self.topic_listeners:
             self.topic_listeners[topic_key] = []
         self.topic_listeners[topic_key].append(TopicValue(topic, listen_schema_name, schema, observer))
-        # Subscribe to the topic if the connection is active
-        if self.connection and self.connection.state == proton.EndpointState.ACTIVE:
-            self.container.create_receiver(self.connection, topic)
+
 class AvroStomper:
-    def __init__(self, host, port, user=None, password=None, auto_reconnect=False, logger=None):
+    def __init__(self, host, port, user=None, password=None, auto_reconnect=True, logger=None):
         self.logger = logger or logging.root
         self.handler = ProtonHandler(f'amqp://{user}:{password}@{host}:{port}', user, password, auto_reconnect, self.logger)
         self.container = Container(self.handler)
