@@ -44,6 +44,12 @@ class ProtonHandler(MessagingHandler):
             event.container.create_receiver(self.connection, topic)
 
     def send_message(self, topic, avro_object):
+        if topic not in self.senders or not self.senders[topic]:
+            if not self.connection:
+                self.logger.error(f"Connection not established. Cannot create sender for topic: {topic}")
+                return
+            self.senders[topic] = self.connection.create_sender(topic)
+
         serialize = avroer.AvroSerializer(schema=avro_object.schema)
         content = serialize(content=avro_object.data)
         message = Message(body=content, properties={"schema": avro_object.schema.get_prop("name")})
@@ -94,6 +100,9 @@ class AvroStomper:
         self.thread.join()
 
     def send(self, topic: str, avro_object: avroer.AvroObject) -> None:
+        if not self.handler.connection:
+            self.logger.error("Connection not established. Cannot send message.")
+            return
         self.handler.send_message(topic, avro_object)
 
     def subscribe(self, observer: MessageListener, topic: str, schema: avro.schema.Schema=None,
