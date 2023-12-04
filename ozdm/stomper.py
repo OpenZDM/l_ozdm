@@ -8,6 +8,7 @@ from proton.handlers import MessagingHandler
 from proton.reactor import Container
 from ozdm import avroer
 from ozdm.avroer import AvroSerializer, AvroDeserializer
+import queue
 
 class MessageListener(abc.ABC):
     @abc.abstractmethod
@@ -95,20 +96,22 @@ class AvroStomper(MessagingHandler):
         self.sender = None
         self.topic = None
         self.is_connected = False
+        self.message_queue = queue.Queue()
 
     def connect(self, topic=None):
         if not self.is_connected:
             self.topic = topic
             self.container = Container(self)
-            self.thread = threading.Thread(target=self.container.run)
-            self.thread.daemon = True  # Set as a daemon thread
-            self.thread.start()
+            thread = threading.Thread(target=self.container.run)
+            thread.daemon = True
+            thread.start()
             self.logger.info("Container thread started")
 
     def on_connection_opened(self, event):
         self.logger.info("Connection opened")
         self.is_connected = True
-        self.connection = event.connection  # Update the connection object
+        self.connection = event.connection
+        self.process_queued_messages()
 
     def on_disconnected(self, event):
         self.logger.info("Disconnected")
@@ -117,9 +120,13 @@ class AvroStomper(MessagingHandler):
 
     def send(self, avro_object, topic=None):
         if not self.is_connected:
-            self.logger.error("Connection not established. Cannot send message.")
+            self.logger.info("Queueing message as connection is not yet established.")
+            self.message_queue.put((avro_object, topic))
             return
 
+        self._send_message(avro_object, topic)
+
+    def _send_message(self, avro_object, topic):
         try:
             serialize = AvroSerializer(schema=avro_object.schema)
             content = serialize(content=avro_object.data)
@@ -132,3 +139,9 @@ class AvroStomper(MessagingHandler):
             self.logger.info(f"Message sent to {topic if topic else self.topic}")
         except Exception as e:
             self.logger.error(f"Error while sending message: {e}", exc_info=True)
+
+    def process_queued_messages(self):
+        while not self.message_queue.empty():
+            avro_object, topic = self.message_queue.get()
+            self._send_message(avro_object, topic)
+            self.message_queue.task_done()
