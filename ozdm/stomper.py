@@ -44,11 +44,16 @@ class ProtonHandler(MessagingHandler):
             event.container.create_receiver(self.connection, topic)
 
     def send_message(self, topic, avro_object):
-        if topic not in self.senders or not self.senders[topic]:
-            if not self.connection:
-                self.logger.error(f"Connection not established. Cannot create sender for topic: {topic}")
+        if not self.connection:
+            self.logger.error(f"Connection not established. Cannot create sender for topic: {topic}")
+            return
+
+        if topic not in self.senders or self.senders[topic] is None:
+            try:
+                self.senders[topic] = self.connection.create_sender(topic)
+            except Exception as e:
+                self.logger.error(f"Failed to create sender for topic '{topic}': {e}")
                 return
-            self.senders[topic] = self.connection.create_sender(topic)
 
         serialize = avroer.AvroSerializer(schema=avro_object.schema)
         content = serialize(content=avro_object.data)
