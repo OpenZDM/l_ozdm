@@ -114,14 +114,14 @@ class ProtonHandler(MessagingHandler):
             self.topic_listeners[topic_key].append(topic_value)
             self.logger.info(f"Subscribed to topic: {topic} with schema: {listen_schema_name}")
 
-            if self.connection:
+            if self.connection and self.connection.is_open():
                 try:
-                    self.connection.create_receiver(source=topic)
+                    self.receiver = self.container.create_receiver(self.connection, topic)
                     self.logger.info(f"Proton receiver created for topic: {topic}")
                 except Exception as e:
                     self.logger.error(f"Failed to create Proton receiver for topic {topic}: {e}")
             else:
-                self.logger.error("Connection is not active. Unable to receive messages.")
+                self.logger.error("Connection is not active or not open. Unable to create receiver.")
         else:
             self.logger.info(f"Already subscribed to topic: {topic} with schema: {listen_schema_name}")
 
