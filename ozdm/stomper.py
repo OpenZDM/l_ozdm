@@ -114,7 +114,11 @@ class ProtonHandler(MessagingHandler):
             self.logger.info(f"Subscribed to topic: {topic} with schema: {listen_schema_name}")
 
             if self.connection:
-                self.logger.info(f"Ready to receive messages for topic: {topic}")
+                try:
+                    receiver = self.connection.create_receiver(topic)
+                    self.logger.info(f"Proton receiver created for topic: {topic}")
+                except Exception as e:
+                    self.logger.error(f"Failed to create Proton receiver for topic {topic}: {e}")
             else:
                 self.logger.error("Connection is not active. Unable to receive messages.")
         else:
