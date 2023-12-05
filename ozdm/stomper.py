@@ -102,8 +102,7 @@ class ProtonHandler(MessagingHandler):
         except Exception as e:
             self.logger.error(f"Error processing message: {e}")
 
-    def subscribe(self, observer: MessageListener, topic: str, schema: avro.schema.Schema = None,
-                  listen_schema_name: str = None):
+    def subscribe(self, observer: MessageListener, topic: str, schema: avro.schema.Schema=None, listen_schema_name: str = None):
         topic_key = TopicKey(topic, listen_schema_name)
         topic_value = TopicValue(topic, listen_schema_name, schema, observer)
 
@@ -115,13 +114,9 @@ class ProtonHandler(MessagingHandler):
             self.logger.info(f"Subscribed to topic: {topic} with schema: {listen_schema_name}")
 
             if self.connection:
-                try:
-                    receiver = self.connection.create_receiver(topic)
-                    self.logger.info(f"Proton receiver created for topic: {topic}")
-                except Exception as e:
-                    self.logger.error(f"Failed to create Proton receiver for topic {topic}: {e}")
+                self.logger.info(f"Ready to receive messages for topic: {topic}")
             else:
-                self.logger.error("No active connection to create Proton receiver.")
+                self.logger.error("Connection is not active. Unable to receive messages.")
         else:
             self.logger.info(f"Already subscribed to topic: {topic} with schema: {listen_schema_name}")
 
