@@ -1,9 +1,12 @@
 import io
 import json
+import logging
 
 import avro.schema
 import avro.datafile
 import requests
+
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 
 class AvroObject:
@@ -113,27 +116,36 @@ class AvroSerializer:
         self.avro_schema = schema
 
     def __call__(self, content: dict) -> bytes:
-        buf = io.BytesIO()
-        writer = avro.datafile.DataFileWriter(buf, avro.io.DatumWriter(), self.avro_schema)
-        writer.append(content)
-        writer.flush()
-        buf.seek(0)
-        data = buf.read()
-        return data
+        try:
+            buf = io.BytesIO()
+            writer = avro.datafile.DataFileWriter(buf, avro.io.DatumWriter(), self.avro_schema)
+            writer.append(content)
+            writer.flush()
+            buf.seek(0)
+            data = buf.read()
+            return data
+        except Exception as e:
+            logging.error(f"Serialization failed: {e}")
+            raise e
 
 
 
 class AvroDeserializer:
 
     def __call__(self, payload: bytes) -> (avro.schema.Schema, list):
-        message_buf = io.BytesIO(payload)
-        reader = avro.datafile.DataFileReader(message_buf, avro.io.DatumReader())
-        schema = reader.schema
-        content = []
-        for thing in reader:
-            content.append(thing)
-        reader.close()
-        return schema, content
+        try:
+            message_buf = io.BytesIO(payload)
+            reader = avro.datafile.DataFileReader(message_buf, avro.io.DatumReader())
+            schema = reader.schema
+            content = []
+            for thing in reader:
+                content.append(thing)
+            reader.close()
+            logging.info("Deserialization successful")
+            return schema, content
+        except Exception as e:
+            logging.error(f"Deserialization failed: {e}")
+            raise e
 
 
 class SchemaException(Exception):

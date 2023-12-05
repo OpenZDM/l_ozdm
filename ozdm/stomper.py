@@ -61,7 +61,7 @@ class ProtonHandler(MessagingHandler):
             self.logger.error(f"Connection failed: {e}")
             if self.auto_reconnect and self.reconnect_attempts < self.max_reconnect_attempts:
                 self.reconnect_attempts += 1
-                time.sleep(5)  # Wait for 5 seconds before trying to reconnect
+                time.sleep(5)
                 self.connect(container)
 
     def on_disconnected(self, event):
@@ -80,29 +80,50 @@ class ProtonHandler(MessagingHandler):
         content = serialize(content=avro_object.data)
         message = Message(address=topic, body=content, properties={"schema": avro_object.schema.get_prop("name")})
         self.sender.send(message)
+        self.logger.info(f"Message sent to topic {topic}")
 
     def on_message(self, event):
-        topic = event.receiver.source.address
-        observers = []
-        for key, value in self.topic_listeners.items():
-            if key.topic == topic:
-                observers.extend(value)
+        self.logger.info(f"Received message on AMQP topic: {event.receiver.source.address}")
+        try:
+            topic = event.receiver.source.address
+            observers = []
+            for key, value in self.topic_listeners.items():
+                if key.topic == topic:
+                    observers.extend(value)
 
-        payload = event.message.body
-        deserialize = avroer.AvroDeserializer()
-        inferred_schema, data = deserialize(payload=payload)
+            payload = event.message.body
+            deserialize = avroer.AvroDeserializer()
+            inferred_schema, data = deserialize(payload=payload)
 
-        for d in data:
-            avro_object = avroer.AvroObject(schema=inferred_schema, data=d)
-            for observer in observers:
-                observer.observer.on_message(avro_object)
+            for d in data:
+                avro_object = avroer.AvroObject(schema=inferred_schema, data=d)
+                for observer in observers:
+                    observer.observer.on_message(avro_object)
+        except Exception as e:
+            self.logger.error(f"Error processing message: {e}")
 
-    def subscribe(self, observer: MessageListener, topic: str, schema: avro.schema.Schema=None,
-                  listen_schema_name: str = None) -> None:
+    def subscribe(self, observer: MessageListener, topic: str, schema: avro.schema.Schema = None,
+                  listen_schema_name: str = None):
         topic_key = TopicKey(topic, listen_schema_name)
+        topic_value = TopicValue(topic, listen_schema_name, schema, observer)
+
         if topic_key not in self.topic_listeners:
             self.topic_listeners[topic_key] = []
-        self.topic_listeners[topic_key].append(TopicValue(topic, listen_schema_name, schema, observer))
+
+        if topic_value not in self.topic_listeners[topic_key]:
+            self.topic_listeners[topic_key].append(topic_value)
+            self.logger.info(f"Subscribed to topic: {topic} with schema: {listen_schema_name}")
+
+            if self.connection:
+                try:
+                    receiver = self.connection.create_receiver(topic)
+                    self.logger.info(f"Proton receiver created for topic: {topic}")
+                except Exception as e:
+                    self.logger.error(f"Failed to create Proton receiver for topic {topic}: {e}")
+            else:
+                self.logger.error("No active connection to create Proton receiver.")
+        else:
+            self.logger.info(f"Already subscribed to topic: {topic} with schema: {listen_schema_name}")
 
 class AvroStomper:
     def __init__(self, host, port, user=None, password=None, auto_reconnect=True, logger=None):
