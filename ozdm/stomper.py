@@ -116,7 +116,7 @@ class ProtonHandler(MessagingHandler):
 
             if self.connection:
                 try:
-                    self.connection.create_receiver(self.connection, topic)
+                    self.connection.create_receiver(source=topic)
                     self.logger.info(f"Proton receiver created for topic: {topic}")
                 except Exception as e:
                     self.logger.error(f"Failed to create Proton receiver for topic {topic}: {e}")
