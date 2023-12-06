@@ -36,9 +36,8 @@ class TopicValue:
         return isinstance(other, TopicValue) and self.topic == other.topic and self.listen_schema_name == other.listen_schema_name
 
 class ProtonHandler(MessagingHandler):
-    def __init__(self, container, server_url, user, password, auto_reconnect, logger=None):
+    def __init__(self, server_url, user, password, auto_reconnect, logger=None):
         super(ProtonHandler, self).__init__()
-        self.container = container
         self.server_url = server_url
         self.user = user
         self.password = password
@@ -49,6 +48,14 @@ class ProtonHandler(MessagingHandler):
         self.topic_listeners = {}
         self.reconnect_attempts = 0
         self.max_reconnect_attempts = 5
+        self.container = Container(self)
+        self.thread_started = False
+
+    def start_thread(self):
+        if not self.thread_started:
+            self.thread = threading.Thread(target=self.container.run)
+            self.thread.start()
+            self.thread_started = True
 
     def on_start(self, event):
         self.connect(event.container)
@@ -115,25 +122,22 @@ class ProtonHandler(MessagingHandler):
             self.topic_listeners[topic_key].append(topic_value)
             self.logger.info(f"Subscribed to topic: {topic} with schema: {listen_schema_name}")
 
-            if self.connection:
-                try:
-                    self.receiver = self.container.create_receiver(self.connection, topic)
-                    self.logger.info(f"Proton receiver created for topic: {topic}")
-                except Exception as e:
-                    self.logger.error(f"Failed to create Proton receiver for topic {topic}: {e}")
-            else:
-                self.logger.error("Connection is not active. Unable to create receiver.")
+            try:
+                self.receiver = self.container.create_receiver(self.connection, topic)
+                self.logger.info(f"Proton receiver created for topic: {topic}")
+            except Exception as e:
+                self.logger.error(f"Failed to create Proton receiver for topic {topic}: {e}")
+
         else:
             self.logger.info(f"Already subscribed to topic: {topic} with schema: {listen_schema_name}")
+
 
 
 class AvroStomper:
     def __init__(self, host, port, user=None, password=None, auto_reconnect=True, logger=None):
         self.logger = logger or logging.root
-        self.container = Container()
-        self.handler = ProtonHandler(self.container, f'amqp://{user}:{password}@{host}:{port}', user, password, auto_reconnect, self.logger)
-        self.thread = threading.Thread(target=self.container.run)
-        self.thread.start()
+        self.handler = ProtonHandler(f'amqp://{user}:{password}@{host}:{port}', user, password, auto_reconnect, self.logger)
+        self.handler.start_thread()
 
     def connect(self):
         if not self.thread.is_alive():
