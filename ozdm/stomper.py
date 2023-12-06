@@ -137,17 +137,18 @@ class AvroStomper:
     def __init__(self, host, port, user=None, password=None, auto_reconnect=True, logger=None):
         self.logger = logger or logging.root
         self.handler = ProtonHandler(f'amqp://{user}:{password}@{host}:{port}', user, password, auto_reconnect, self.logger)
-        self.handler.start_thread()
+        # Initialize but don't start the thread here
 
     def connect(self):
-        if not self.thread.is_alive():
-            self.thread.start()
+        # Start the thread only if it hasn't been started yet
+        if not self.handler.thread_started:
+            self.handler.start_thread()
 
     def disconnect(self):
-        if self.container and self.container.running:
-            self.container.stop()
-        if self.thread.is_alive():
-            self.thread.join()
+        if self.handler.container and self.handler.container.running:
+            self.handler.container.stop()
+            if self.handler.thread_started and self.handler.thread.is_alive():
+                self.handler.thread.join()
 
     def send(self, topic: str, avro_object: avroer.AvroObject) -> None:
         self.handler.send_message(topic, avro_object)
