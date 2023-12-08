@@ -172,5 +172,3 @@ class SchemaManager:
             "X-Registry-ArtifactId": schema_id,
             "X-Registry-ArtifactType": "AVRO"
         })
-
-
