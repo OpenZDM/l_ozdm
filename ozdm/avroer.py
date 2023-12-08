@@ -137,6 +137,7 @@ class AvroDeserializer:
             message_buf = io.BytesIO(payload)
             reader = avro.datafile.DataFileReader(message_buf, avro.io.DatumReader())
             schema = reader.schema
+            logging.info(f"Deserialized Schema: {schema}")
             content = []
             for thing in reader:
                 content.append(thing)
