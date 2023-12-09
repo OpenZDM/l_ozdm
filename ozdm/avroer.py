@@ -172,3 +172,32 @@ class SchemaManager:
             "X-Registry-ArtifactId": schema_id,
             "X-Registry-ArtifactType": "AVRO"
         })
+
+
+
+# def main():
+#     schema_dict = {
+#         "type": "record",
+#         "name": "TestRecord",
+#         "namespace": "example.namespace",
+#         "fields": [
+#             {"name": "field1", "type": "string"},
+#             {"name": "field2", "type": "int"}
+#         ]
+#     }
+#     schema = avro.schema.parse(json.dumps(schema_dict))
+#
+#     test_data = {"field1": "value1", "field2": 123}
+#     avro_obj = AvroObject(schema, test_data)
+#     print(f"Created AvroObject: {avro_obj.data}")
+#
+#     serializer = AvroSerializer(schema)
+#     serialized_data = serializer(avro_obj.data)
+#     print(f"Serialized data: {serialized_data}")
+#
+#     deserializer = AvroDeserializer()
+#     deserialized_schema, deserialized_data = deserializer(serialized_data)
+#     print(f"Deserialized data: {deserialized_data}")
+#
+# if __name__ == "__main__":
+#     main()
