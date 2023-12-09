@@ -84,14 +84,11 @@ class ProtonHandler(MessagingHandler):
         if not self.sender:
             self.logger.error("Sender not established. Cannot send message.")
             return
-        try:
-            serialize = avroer.AvroSerializer(schema=avro_object.schema)
-            content = serialize(content=avro_object.data)
-            message = Message(address=topic, body=content, properties={"schema": avro_object.schema.get_prop("name")})
-            self.sender.send(message)
-            self.logger.info(f"Message sent to topic {topic}")
-        except Exception as e:
-            self.logger.error(f"Error sending message: {e}")
+        serialize = avroer.AvroSerializer(schema=avro_object.schema)
+        content = serialize(content=avro_object.data)
+        message = Message(address=topic, body=content, properties={"schema": avro_object.schema.get_prop("name")})
+        self.sender.send(message)
+        self.logger.info(f"Message sent to topic {topic}")
 
     def on_message(self, event):
         self.logger.info(f"Received message on AMQP topic: {event.receiver.source.address}")
@@ -103,9 +100,6 @@ class ProtonHandler(MessagingHandler):
                     observers.extend(value)
 
             payload = event.message.body
-            if not isinstance(payload, bytes):
-                raise TypeError("Payload is not in binary format")
-
             deserialize = avroer.AvroDeserializer()
             inferred_schema, data = deserialize(payload=payload)
 
@@ -116,7 +110,8 @@ class ProtonHandler(MessagingHandler):
         except Exception as e:
             self.logger.error(f"Error processing message: {e}")
 
-    def subscribe(self, observer, topic, schema=None, listen_schema_name=None):
+    def subscribe(self, observer: MessageListener, topic: str, schema: avro.schema.Schema = None,
+                  listen_schema_name: str = None):
         topic_key = TopicKey(topic, listen_schema_name)
         topic_value = TopicValue(topic, listen_schema_name, schema, observer)
 
@@ -127,16 +122,15 @@ class ProtonHandler(MessagingHandler):
             self.topic_listeners[topic_key].append(topic_value)
             self.logger.info(f"Subscribed to topic: {topic} with schema: {listen_schema_name}")
 
-            if self.connection:
-                try:
-                    self.receiver = self.container.create_receiver(self.connection, topic)
-                    self.logger.info(f"Proton receiver created for topic: {topic}")
-                except Exception as e:
-                    self.logger.error(f"Failed to create Proton receiver for topic {topic}: {e}")
-            else:
-                self.logger.error("Connection is not active. Unable to create receiver.")
+            try:
+                self.receiver = self.container.create_receiver(self.connection, topic)
+                self.logger.info(f"Proton receiver created for topic: {topic}")
+            except Exception as e:
+                self.logger.error(f"Failed to create Proton receiver for topic {topic}: {e}")
+
         else:
             self.logger.info(f"Already subscribed to topic: {topic} with schema: {listen_schema_name}")
+
 
 
 class AvroStomper:
