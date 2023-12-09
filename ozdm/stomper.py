@@ -92,32 +92,32 @@ class ProtonHandler(MessagingHandler):
         self.logger.info(f"Message sent to topic {topic}")
 
     def on_message(self, event):
-    self.logger.info(f"Received message on AMQP topic: {event.receiver.source.address}")
-    try:
-        topic = event.receiver.source.address
-        observers = []
-        for key, value in self.topic_listeners.items():
-            if key.topic == topic:
-                observers.extend(value)
-
-        payload = event.message.body
-        self.logger.debug(f"Raw payload: {payload}")
-
-        deserialize = avroer.AvroDeserializer()
-        inferred_schema, data = deserialize(payload=payload)
-
-        if isinstance(inferred_schema, str):
-            inferred_schema = avro.schema.parse(inferred_schema)
-
-        self.logger.debug(f"Inferred schema: {inferred_schema}")
-        self.logger.debug(f"Sample deserialized data: {data[:2]}")  # log first two data items
-
-        for d in data:
-            avro_object = avroer.AvroObject(schema=inferred_schema, data=d)
-            for observer in observers:
-                observer.observer.on_message(avro_object)
-    except Exception as e:
-        self.logger.error(f"Error processing message: {e}\n{traceback.format_exc()}")
+        self.logger.info(f"Received message on AMQP topic: {event.receiver.source.address}")
+        try:
+            topic = event.receiver.source.address
+            observers = []
+            for key, value in self.topic_listeners.items():
+                if key.topic == topic:
+                    observers.extend(value)
+    
+            payload = event.message.body
+            self.logger.debug(f"Raw payload: {payload}")
+    
+            deserialize = avroer.AvroDeserializer()
+            inferred_schema, data = deserialize(payload=payload)
+    
+            if isinstance(inferred_schema, str):
+                inferred_schema = avro.schema.parse(inferred_schema)
+    
+            self.logger.debug(f"Inferred schema: {inferred_schema}")
+            self.logger.debug(f"Sample deserialized data: {data[:2]}")  # log first two data items
+    
+            for d in data:
+                avro_object = avroer.AvroObject(schema=inferred_schema, data=d)
+                for observer in observers:
+                    observer.observer.on_message(avro_object)
+        except Exception as e:
+            self.logger.error(f"Error processing message: {e}\n{traceback.format_exc()}")
 
     def subscribe(self, observer: MessageListener, topic: str, schema: avro.schema.Schema = None,
                   listen_schema_name: str = None):
