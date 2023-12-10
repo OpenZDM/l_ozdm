@@ -3,17 +3,20 @@ import logging
 import threading
 import time
 import traceback
+
+import avro.schema
 from proton import Message
 from proton.handlers import MessagingHandler
 from proton.reactor import Container
+
 from ozdm import avroer
-import avro.schema
-from typing import Dict, List
+
 
 class MessageListener(abc.ABC):
     @abc.abstractmethod
     def on_message(self, subject: avroer.AvroObject) -> None:
         pass
+
 
 class TopicKey:
     def __init__(self, topic: str, listen_schema_name: str | None):
@@ -21,10 +24,12 @@ class TopicKey:
         self.listen_schema_name = listen_schema_name
 
     def __eq__(self, other):
-        return isinstance(other, TopicKey) and self.topic == other.topic and self.listen_schema_name == other.listen_schema_name
+        return isinstance(other,
+                          TopicKey) and self.topic == other.topic and self.listen_schema_name == other.listen_schema_name
 
     def __hash__(self):
         return hash((self.topic, self.listen_schema_name))
+
 
 class TopicValue:
     def __init__(self, topic: str, listen_schema_name: str, schema: avro.schema.Schema, observer: MessageListener):
@@ -34,7 +39,9 @@ class TopicValue:
         self.observer = observer
 
     def __eq__(self, other):
-        return isinstance(other, TopicValue) and self.topic == other.topic and self.listen_schema_name == other.listen_schema_name
+        return isinstance(other,
+                          TopicValue) and self.topic == other.topic and self.listen_schema_name == other.listen_schema_name
+
 
 class ProtonHandler(MessagingHandler):
     def __init__(self, server_url, user, password, auto_reconnect, logger=None):
@@ -89,35 +96,37 @@ class ProtonHandler(MessagingHandler):
         content = serialize(content=avro_object.data)
         message = Message(address=topic, body=content, properties={"schema": avro_object.schema.get_prop("name")})
         self.sender.send(message)
-        self.logger.info(f"Message sent to topic {topic}")
+        self.logger.debug(f"Message sent to topic {topic}")
 
     def on_message(self, event):
-    self.logger.info(f"Received message on AMQP topic: {event.receiver.source.address}")
-    try:
-        topic = event.receiver.source.address
-        observers = []
-        for key, value in self.topic_listeners.items():
-            if key.topic == topic:
-                observers.extend(value)
 
-        payload = event.message.body
-        self.logger.debug(f"Raw payload: {payload}")
+        self.logger.debug(f"Received message on AMQP topic: {event.receiver.source.address}")
 
-        deserialize = avroer.AvroDeserializer()
-        inferred_schema, data = deserialize(payload=payload)
+        try:
+            topic = event.receiver.source.address
+            observers = []
+            for key, value in self.topic_listeners.items():
+                if key.topic == topic:
+                    observers.extend(value)
 
-        if isinstance(inferred_schema, str):
-            inferred_schema = avro.schema.parse(inferred_schema)
+            payload = event.message.body
+            self.logger.debug(f"Raw payload: {payload}")
 
-        self.logger.debug(f"Inferred schema: {inferred_schema}")
-        self.logger.debug(f"Sample deserialized data: {data[:2]}")  # log first two data items
+            deserialize = avroer.AvroDeserializer()
+            inferred_schema, data = deserialize(payload=payload)
 
-        for d in data:
-            avro_object = avroer.AvroObject(schema=inferred_schema, data=d)
-            for observer in observers:
-                observer.observer.on_message(avro_object)
-    except Exception as e:
-        self.logger.error(f"Error processing message: {e}\n{traceback.format_exc()}")
+            if isinstance(inferred_schema, str):
+                inferred_schema = avro.schema.parse(inferred_schema)
+
+            self.logger.debug(f"Inferred schema: {inferred_schema}")
+            self.logger.debug(f"Sample deserialized data: {data[:2]}")  # log first two data items
+
+            for d in data:
+                avro_object = avroer.AvroObject(schema=inferred_schema, data=d)
+                for observer in observers:
+                    observer.observer.on_message(avro_object)
+        except Exception as e:
+            self.logger.error(f"Error processing message: {e}\n{traceback.format_exc()}")
 
     def subscribe(self, observer: MessageListener, topic: str, schema: avro.schema.Schema = None,
                   listen_schema_name: str = None):
@@ -141,11 +150,11 @@ class ProtonHandler(MessagingHandler):
             self.logger.info(f"Already subscribed to topic: {topic} with schema: {listen_schema_name}")
 
 
-
 class AvroStomper:
     def __init__(self, host, port, user=None, password=None, auto_reconnect=True, logger=None):
         self.logger = logger or logging.root
-        self.handler = ProtonHandler(f'amqp://{user}:{password}@{host}:{port}', user, password, auto_reconnect, self.logger)
+        self.handler = ProtonHandler(f'amqp://{user}:{password}@{host}:{port}', user, password, auto_reconnect,
+                                     self.logger)
         # Initialize but don't start the thread here
 
     def connect(self):
@@ -162,6 +171,6 @@ class AvroStomper:
     def send(self, topic: str, avro_object: avroer.AvroObject) -> None:
         self.handler.send_message(topic, avro_object)
 
-    def subscribe(self, observer: MessageListener, topic: str, schema: avro.schema.Schema=None,
+    def subscribe(self, observer: MessageListener, topic: str, schema: avro.schema.Schema = None,
                   listen_schema_name: str = None) -> None:
         self.handler.subscribe(observer, topic, schema, listen_schema_name)

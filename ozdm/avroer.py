@@ -2,8 +2,8 @@ import io
 import json
 import logging
 
-import avro.schema
 import avro.datafile
+import avro.schema
 import requests
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -129,7 +129,6 @@ class AvroSerializer:
             raise e
 
 
-
 class AvroDeserializer:
 
     def __call__(self, payload: bytes) -> (avro.schema.Schema, list):
@@ -137,12 +136,12 @@ class AvroDeserializer:
             message_buf = io.BytesIO(payload)
             reader = avro.datafile.DataFileReader(message_buf, avro.io.DatumReader())
             schema = reader.schema
-            logging.info(f"Deserialized Schema: {schema}")
+            logging.debug(f"Deserialized Schema: {schema}")
             content = []
             for thing in reader:
                 content.append(thing)
             reader.close()
-            logging.info("Deserialization successful")
+            logging.debug("Deserialization successful")
             return schema, content
         except Exception as e:
             logging.error(f"Deserialization failed: {e}")
@@ -172,8 +171,6 @@ class SchemaManager:
             "X-Registry-ArtifactId": schema_id,
             "X-Registry-ArtifactType": "AVRO"
         })
-
-
 
 # def main():
 #     schema_dict = {
