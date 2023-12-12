@@ -1,51 +1,34 @@
 import abc
 import logging
-from typing import Dict, List
+import threading
+import time
+import traceback
 
 import avro.schema
-import stomp
+from proton import Message
+from proton.handlers import MessagingHandler
+from proton.reactor import Container
 
 from ozdm import avroer
 
 
 class MessageListener(abc.ABC):
-
     @abc.abstractmethod
     def on_message(self, subject: avroer.AvroObject) -> None:
         pass
 
 
-class ReconnectListener(stomp.ConnectionListener):
-    _topics: set[str] = set()
+class TopicKey:
+    def __init__(self, topic: str, listen_schema_name: str | None):
+        self.topic = topic
+        self.listen_schema_name = listen_schema_name
 
-    def __init__(self, conn, user=None, password=None, logger=None):
-        self.conn = conn
-        self.logger = logger or logging.root
-        self.user = user
-        self.password = password
+    def __eq__(self, other):
+        return isinstance(other,
+                          TopicKey) and self.topic == other.topic and self.listen_schema_name == other.listen_schema_name
 
-    def on_error(self, frame):
-        self.logger.debug('received an error "%s"' % frame.body)
-
-    def on_message(self, frame):
-        self.logger.debug('received a message "%s"' % frame.body)
-
-    def on_disconnected(self):
-        self.logger.info('Reconnecting...')
-        self.connect()
-        i = 1
-        for t in self._topics:
-            self.conn.subscribe(destination=t, id=i, ack='auto')
-            i = i + 1
-
-    def connect(self):
-        if self.user is not None and self.password is not None:
-            self.conn.connect(self.user, self.password, wait=True)
-        else:
-            self.conn.connect(wait=True)
-
-    def subscribed(self, topic):
-        self._topics.add(topic)
+    def __hash__(self):
+        return hash((self.topic, self.listen_schema_name))
 
 
 class TopicValue:
@@ -56,97 +39,141 @@ class TopicValue:
         self.observer = observer
 
     def __eq__(self, other):
-        """Overrides the default implementation"""
-        if isinstance(other, TopicValue):
-            return self.topic == other.topic and self.listen_schema_name == other.listen_schema_name
-        return False
+        return isinstance(other,
+                          TopicValue) and self.topic == other.topic and self.listen_schema_name == other.listen_schema_name
 
 
-class TopicKey:
-    def __init__(self, topic: str, listen_schema_name: str | None):
-        self.topic = topic
-        self.listen_schema_name = listen_schema_name
-
-    def __eq__(self, other):
-        if isinstance(other, TopicKey):
-            return self.topic == other.topic and self.listen_schema_name == other.listen_schema_name
-        return False
-
-    def __hash__(self):
-        return hash((self.topic, self.listen_schema_name))
-
-    def __ne__(self, other):
-        return not (self == other)
-
-
-class TopicListener(stomp.ConnectionListener):
-    _observers: Dict[TopicKey, List[TopicValue]] = {}
-
-    def __init__(self, logger=None):
+class ProtonHandler(MessagingHandler):
+    def __init__(self, server_url, user, password, auto_reconnect, logger=None):
+        super(ProtonHandler, self).__init__()
+        self.server_url = server_url
+        self.user = user
+        self.password = password
+        self.auto_reconnect = auto_reconnect
         self.logger = logger or logging.root
+        self.connection = None
+        self.sender = None
+        self.topic_listeners = {}
+        self.reconnect_attempts = 0
+        self.max_reconnect_attempts = 5
+        self.container = Container(self)
+        self.thread_started = False
 
-    def on_message(self, frame):
-        topic = frame.headers["destination"]
-        schema_name = frame.headers["schema"]
-        observers = []
-        k = TopicKey(topic=topic, listen_schema_name=schema_name)
-        if k in self._observers.keys():
-            for l in self._observers[k]:
-                observers.append(l)
+    def start_thread(self):
+        if not self.thread_started:
+            self.thread = threading.Thread(target=self.container.run)
+            self.thread.start()
+            self.thread_started = True
 
-        k = TopicKey(topic=topic, listen_schema_name=None)
-        if k in self._observers.keys():
-            for l in self._observers[k]:
-                observers.append(l)
+    def on_start(self, event):
+        self.connect(event.container)
 
-        payload = frame.body
-        deserialize = avroer.AvroDeserializer()
-        inferred_schema, data = deserialize(payload=payload)
-        for d in data:
-            for l in observers:
-                schema = l.schema or inferred_schema
-                avro_object = avroer.AvroObject(schema=schema, data=d)
-                l.observer.on_message(subject=avro_object)
+    def connect(self, container):
+        try:
+            self.connection = container.connect(self.server_url, user=self.user, password=self.password)
+            self.sender = container.create_sender(self.connection, None)
+            self.reconnect_attempts = 0
+        except Exception as e:
+            self.logger.error(f"Connection failed: {e}")
+            if self.auto_reconnect and self.reconnect_attempts < self.max_reconnect_attempts:
+                self.reconnect_attempts += 1
+                time.sleep(5)
+                self.connect(container)
 
-    def subscribe(self, observer: MessageListener, topic: str, schema: avro.schema.Schema,
-                  listen_schema_name: str = None) -> None:
-        k = TopicKey(topic=topic, listen_schema_name=listen_schema_name)
-        if k not in self._observers.keys():
-            self._observers[k] = []
-        self._observers[k].append(TopicValue(topic=topic,
-                                             listen_schema_name=listen_schema_name,
-                                             schema=schema,
-                                             observer=observer))
+    def on_disconnected(self, event):
+        if self.auto_reconnect and self.reconnect_attempts < self.max_reconnect_attempts:
+            self.logger.info("Attempting to reconnect...")
+            self.reconnect_attempts += 1
+            self.connect(event.container)
+        else:
+            self.logger.error("Maximum reconnect attempts reached. Giving up.")
+
+    def send_message(self, topic, avro_object):
+        if not self.sender:
+            self.logger.error("Sender not established. Cannot send message.")
+            return
+        serialize = avroer.AvroSerializer(schema=avro_object.schema)
+        content = serialize(content=avro_object.data)
+        message = Message(address=topic, body=content, properties={"schema": avro_object.schema.get_prop("name")})
+        self.sender.send(message)
+        self.logger.debug(f"Message sent to topic {topic}")
+
+    def on_message(self, event):
+
+        self.logger.debug(f"Received message on AMQP topic: {event.receiver.source.address}")
+
+        try:
+            topic = event.receiver.source.address
+            observers = []
+            for key, value in self.topic_listeners.items():
+                if key.topic == topic:
+                    observers.extend(value)
+
+            payload = event.message.body
+            self.logger.debug(f"Raw payload: {payload}")
+
+            deserialize = avroer.AvroDeserializer()
+            inferred_schema, data = deserialize(payload=payload)
+
+            if isinstance(inferred_schema, str):
+                inferred_schema = avro.schema.parse(inferred_schema)
+
+            self.logger.debug(f"Inferred schema: {inferred_schema}")
+            self.logger.debug(f"Sample deserialized data: {data[:2]}")  # log first two data items
+
+            for d in data:
+                avro_object = avroer.AvroObject(schema=inferred_schema, data=d)
+                for observer in observers:
+                    observer.observer.on_message(avro_object)
+        except Exception as e:
+            self.logger.error(f"Error processing message: {e}\n{traceback.format_exc()}")
+
+    def subscribe(self, observer: MessageListener, topic: str, schema: avro.schema.Schema = None,
+                  listen_schema_name: str = None):
+        topic_key = TopicKey(topic, listen_schema_name)
+        topic_value = TopicValue(topic, listen_schema_name, schema, observer)
+
+        if topic_key not in self.topic_listeners:
+            self.topic_listeners[topic_key] = []
+
+        if topic_value not in self.topic_listeners[topic_key]:
+            self.topic_listeners[topic_key].append(topic_value)
+            self.logger.info(f"Subscribed to topic: {topic} with schema: {listen_schema_name}")
+
+            try:
+                self.receiver = self.container.create_receiver(self.connection, topic)
+                self.logger.info(f"Proton receiver created for topic: {topic}")
+            except Exception as e:
+                self.logger.error(f"Failed to create Proton receiver for topic {topic}: {e}")
+
+        else:
+            self.logger.info(f"Already subscribed to topic: {topic} with schema: {listen_schema_name}")
 
 
 class AvroStomper:
-    _i: int = 1
-
-    def __init__(self, host, port, user=None, password=None, auto_reconnect: bool = False, logger=None):
-        self.conn = stomp.Connection(host_and_ports=[(host, port)], heartbeats=(4000, 4000))
+    def __init__(self, host, port, user=None, password=None, auto_reconnect=True, logger=None):
         self.logger = logger or logging.root
-        self.user = user
-        self.password = password
-        self.reconnectListener = ReconnectListener(conn=self.conn, user=user, password=password, logger=logger)
-        self.topic_listener = TopicListener()
-        if auto_reconnect:
-            self.conn.set_listener("reconnectListener", self.reconnectListener)
-        self.conn.set_listener("topicListener", self.topic_listener)
+        self.handler = ProtonHandler(f'amqp://{user}:{password}@{host}:{port}', user, password, auto_reconnect,
+                                     self.logger)
+        # Initialize but don't start the thread here
 
     def connect(self):
-        self.reconnectListener.connect()
+        # Start the thread only if it hasn't been started yet
+        if not self.handler.thread_started:
+            self.handler.start_thread()
 
     def disconnect(self):
-        self.conn.disconnect()
-
-    def subscribe(self, observer: MessageListener, topic: str, schema: avro.schema.Schema=None,
-                  listen_schema_name: str = None) -> None:
-        self.topic_listener.subscribe(observer=observer, topic=topic, schema=schema,
-                                      listen_schema_name=listen_schema_name)
-        self.conn.subscribe(topic, id=topic)
-        self.reconnectListener.subscribed(topic=topic)
+        if self.handler.container and self.handler.container.running:
+            self.handler.container.stop()
+            if self.handler.thread_started and self.handler.thread.is_alive():
+                self.handler.thread.join()
 
     def send(self, topic: str, avro_object: avroer.AvroObject) -> None:
-        serialize = avroer.AvroSerializer(schema=avro_object.schema)
-        content = serialize(content=avro_object.data)
-        self.conn.send(destination=topic, body=content, headers={"schema": avro_object.schema.get_prop("name")})
+        self.handler.send_message(topic, avro_object)
+
+    def subscribe(self, observer: MessageListener, topic: str, schema: avro.schema.Schema = None,
+                  listen_schema_name: str = None) -> None:
+        self.handler.subscribe(observer, topic, schema, listen_schema_name)
+
+
+

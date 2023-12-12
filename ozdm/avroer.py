@@ -1,12 +1,10 @@
+import base64
 import io
 import json
-import logging
 
-import avro.datafile
 import avro.schema
+import avro.datafile
 import requests
-
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 
 class AvroObject:
@@ -115,37 +113,28 @@ class AvroSerializer:
     def __init__(self, schema: avro.schema.Schema):
         self.avro_schema = schema
 
-    def __call__(self, content: dict) -> bytes:
-        try:
-            buf = io.BytesIO()
-            writer = avro.datafile.DataFileWriter(buf, avro.io.DatumWriter(), self.avro_schema)
-            writer.append(content)
-            writer.flush()
-            buf.seek(0)
-            data = buf.read()
-            return data
-        except Exception as e:
-            logging.error(f"Serialization failed: {e}")
-            raise e
+    def __call__(self, content: dict) -> str:
+        buf = io.BytesIO()
+        writer = avro.datafile.DataFileWriter(buf, avro.io.DatumWriter(), self.avro_schema)
+        writer.append(content)
+        writer.flush()
+        buf.seek(0)
+        data = buf.read()
+        return base64.b64encode(data).decode()
 
 
 class AvroDeserializer:
 
     def __call__(self, payload: bytes) -> (avro.schema.Schema, list):
-        try:
-            message_buf = io.BytesIO(payload)
-            reader = avro.datafile.DataFileReader(message_buf, avro.io.DatumReader())
-            schema = reader.schema
-            logging.debug(f"Deserialized Schema: {schema}")
-            content = []
-            for thing in reader:
-                content.append(thing)
-            reader.close()
-            logging.debug("Deserialization successful")
-            return schema, content
-        except Exception as e:
-            logging.error(f"Deserialization failed: {e}")
-            raise e
+        base64_str = base64.b64decode(payload)
+        message_buf = io.BytesIO(base64_str)
+        reader = avro.datafile.DataFileReader(message_buf, avro.io.DatumReader())
+        schema = reader.schema
+        content = []
+        for thing in reader:
+            content.append(thing)
+        reader.close()
+        return schema, content
 
 
 class SchemaException(Exception):
@@ -167,34 +156,7 @@ class SchemaManager:
 
     def put_schema(self, group_id: str, schema_id: str, schema: avro.schema.Schema):
         x = requests.post(url=f"{self.registry.rstrip('/')}/{group_id}/artifacts", json=schema.to_json(), headers={
-            "Content-Type": "application/avro",
+            "Content-Type": "application/json",
             "X-Registry-ArtifactId": schema_id,
             "X-Registry-ArtifactType": "AVRO"
         })
-
-# def main():
-#     schema_dict = {
-#         "type": "record",
-#         "name": "TestRecord",
-#         "namespace": "example.namespace",
-#         "fields": [
-#             {"name": "field1", "type": "string"},
-#             {"name": "field2", "type": "int"}
-#         ]
-#     }
-#     schema = avro.schema.parse(json.dumps(schema_dict))
-#
-#     test_data = {"field1": "value1", "field2": 123}
-#     avro_obj = AvroObject(schema, test_data)
-#     print(f"Created AvroObject: {avro_obj.data}")
-#
-#     serializer = AvroSerializer(schema)
-#     serialized_data = serializer(avro_obj.data)
-#     print(f"Serialized data: {serialized_data}")
-#
-#     deserializer = AvroDeserializer()
-#     deserialized_schema, deserialized_data = deserializer(serialized_data)
-#     print(f"Deserialized data: {deserialized_data}")
-#
-# if __name__ == "__main__":
-#     main()
