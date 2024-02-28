@@ -1,3 +1,44 @@
+# import asyncio
+# from nats.aio.client import Client as NATS
+# from concurrent.futures import ThreadPoolExecutor
+# import logging
+#
+# class AvroStomper:
+#     def __init__(self, servers, user=None, password=None, logger=None):
+#         self.servers = servers
+#         self.user = user
+#         self.password = password
+#         self.logger = logger or logging.getLogger(__name__)
+#         self.loop = asyncio.get_event_loop()
+#         self.executor = ThreadPoolExecutor(max_workers=4)
+#         self.nats = NATS()
+#
+#     def _run_async(self, coro):
+#         """
+#         Helper method to run an asynchronous coroutine from synchronous code.
+#         """
+#         return asyncio.run_coroutine_threadsafe(coro, self.loop).result()
+#
+#     def connect(self):
+#         coro = self.nats.connect(servers=self.servers, user=self.user, password=self.password)
+#         self._run_async(coro)
+#
+#     def disconnect(self):
+#         coro = self.nats.close()
+#         self._run_async(coro)
+#
+#     def send(self, subject, message):
+#         coro = self.nats.publish(subject, message.encode('utf-8'))
+#         self._run_async(coro)
+#
+#     def subscribe(self, subject, callback):
+#         async def async_wrapper(msg):
+#             # Run the synchronous callback in the executor to prevent blocking the event loop
+#             self.loop.run_in_executor(self.executor, callback, msg)
+#
+#         coro = self.nats.subscribe(subject, cb=async_wrapper)
+#         self._run_async(coro)
+
 import abc
 import logging
 from typing import Dict, List

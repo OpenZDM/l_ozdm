@@ -1,7 +1,5 @@
-import base64
 import io
 import json
-
 import avro.schema
 import avro.datafile
 import requests
@@ -26,25 +24,15 @@ class AvroObject:
 
 
 class AvroSchema:
-    def __init__(self, schema_type="record",
-                 schema_namespace: str = None):
+    def __init__(self, schema_type="record", schema_namespace: str = None):
         self.schema_namespace = schema_namespace
         self.schema_type = schema_type
 
-    def schema(self,
-               schema_name: str = None,
-               attrs: dict = None,
-               obj: object = None,
-               data_types: dict = None
-               ) -> avro.schema.Schema:
-
+    def schema(self, schema_name: str = None, attrs: dict = None, obj: object = None, data_types: dict = None) -> avro.schema.Schema:
         if obj is None and attrs is None:
-            raise ValueError("attrs or o must be specified!")
+            raise ValueError("attrs or obj must be specified!")
 
         if obj is None and schema_name is None:
-            raise ValueError("schema_name must be specified!")
-
-        if schema_name is None and attrs is not None:
             raise ValueError("schema_name must be specified!")
 
         schema_name = schema_name or obj.__class__.__name__
@@ -68,12 +56,7 @@ class AvroSchema:
         return avro.schema.parse(json.dumps(schema_dict))
 
     @staticmethod
-    def schema_str(schema: avro.schema.Schema):
-        return json.dumps(schema.to_json())
-
-    @staticmethod
     def get_type(value: object, data_type: type = None):
-
         if value is None and data_type is None:
             raise TypeError("value is None but the type is not explicit in data_types")
 
@@ -113,21 +96,19 @@ class AvroSerializer:
     def __init__(self, schema: avro.schema.Schema):
         self.avro_schema = schema
 
-    def __call__(self, content: dict) -> str:
+    def __call__(self, content: dict) -> bytes:
         buf = io.BytesIO()
         writer = avro.datafile.DataFileWriter(buf, avro.io.DatumWriter(), self.avro_schema)
         writer.append(content)
         writer.flush()
         buf.seek(0)
         data = buf.read()
-        return base64.b64encode(data).decode()
+        return data
 
 
 class AvroDeserializer:
-
     def __call__(self, payload: bytes) -> (avro.schema.Schema, list):
-        base64_str = base64.b64decode(payload)
-        message_buf = io.BytesIO(base64_str)
+        message_buf = io.BytesIO(payload)
         reader = avro.datafile.DataFileReader(message_buf, avro.io.DatumReader())
         schema = reader.schema
         content = []
@@ -143,7 +124,6 @@ class SchemaException(Exception):
 
 
 class SchemaManager:
-
     def __init__(self, registry: str):
         self.registry = registry
 
@@ -155,8 +135,10 @@ class SchemaManager:
             raise SchemaException(f"{group_id}/{schema_id} does not exist in the registry {self.registry}")
 
     def put_schema(self, group_id: str, schema_id: str, schema: avro.schema.Schema):
-        x = requests.post(url=f"{self.registry.rstrip('/')}/{group_id}/artifacts", json=schema.to_json(), headers={
+        response = requests.post(url=f"{self.registry.rstrip('/')}/{group_id}/artifacts", json=schema.to_json(), headers={
             "Content-Type": "application/json",
             "X-Registry-ArtifactId": schema_id,
             "X-Registry-ArtifactType": "AVRO"
         })
+        if response.status_code not in [200, 201]:
+            raise SchemaException(f"Error registering schema {schema_id} with registry {self.registry}: {response.text}")
