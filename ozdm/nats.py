@@ -6,7 +6,7 @@ from nats.aio.client import Client as NATS
 from ozdm import avroer
 
 class NatsManager:
-    def __init__(self, servers: List[str], user: str = None, password: str = None, logger: logging.Logger = None):
+    def __init__(self, servers: str, user: str = None, password: str = None, logger: logging.Logger = None):
         self.servers = servers
         self.user = user
         self.password = password
