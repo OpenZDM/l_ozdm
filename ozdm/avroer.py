@@ -128,11 +128,15 @@ class SchemaManager:
         self.registry = registry
 
     def get_schema(self, group_id: str, schema_id: str) -> avro.schema.Schema:
-        schema = requests.get(f"{self.registry.rstrip('/')}/{group_id}/artifacts/{schema_id}")
-        if schema.status_code == 200:
-            return avro.schema.parse(json_string=json.dumps(schema.json()))
-        else:
-            raise SchemaException(f"{group_id}/{schema_id} does not exist in the registry {self.registry}")
+        try:
+            schema = requests.get(f"{self.registry.rstrip('/')}/{group_id}/artifacts/{schema_id}")
+            if schema.status_code == 200:
+                return avro.schema.parse(json_string=json.dumps(schema.json()))
+            else:
+                raise SchemaException(f"{group_id}/{schema_id} does not exist in the registry {self.registry}")
+        except Exception as ex:
+            print(ex)
+            raise SchemaException(f"Failed to retrieve schema {group_id}/{schema_id} from the registry {self.registry}: {ex}")
 
     def put_schema(self, group_id: str, schema_id: str, schema: avro.schema.Schema):
         response = requests.post(url=f"{self.registry.rstrip('/')}/{group_id}/artifacts", json=schema.to_json(), headers={
